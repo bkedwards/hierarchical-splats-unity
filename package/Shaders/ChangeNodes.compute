@@ -1,0 +1,82 @@
+#pragma kernel ChangeNodes
+
+struct Node {
+    int depth;
+    int parent;
+    int start;
+    int countLeafs;        
+    int countMerged;
+    int startChildren;
+    int countChildren;
+};
+
+struct Box {
+    float4 minBounds;
+    float4 maxBounds;
+};
+
+StructuredBuffer<Node> nodes;
+StructuredBuffer<Box> boxes;
+RWStructuredBuffer<int> nodeIndices;
+RWStructuredBuffer<int> split;
+RWStructuredBuffer<int> nodeCounts;
+RWStructuredBuffer<int> nodeIds;
+RWStructuredBuffer<int> needsChildren;
+
+float4 viewpoint;
+float3 zdir;
+float targetSize;
+int maxNodes;
+
+bool inboxCUDA(Box box, float4 viewpoint) {
+    return all(viewpoint >= box.minBounds) && all(viewpoint <= box.maxBounds);
+}
+
+float pointboxdistCUDA(Box box, float4 viewpoint) {
+    float4 closest = clamp(viewpoint, box.minBounds, box.maxBounds);
+    return length(viewpoint - closest);
+}
+
+float computeSizeGPU(Box box, float4 viewpoint) {
+    if (inboxCUDA(box, viewpoint)) return 1e30;  // FLT_MAX
+    float minDist = pointboxdistCUDA(box, viewpoint);
+    return box.minBounds[3] / minDist;
+}
+
+[numthreads(1024, 1, 1)]
+void ChangeNodes(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= maxNodes) return;
+
+    int nodeId = nodeIndices[idx];
+    Node node = nodes[nodeId];
+    float size = computeSizeGPU(boxes[nodeId], viewpoint);
+
+    int count = 1;
+    int needChild = 0;
+
+    if (size >= targetSize) {
+        if (node.depth > 0 && split[nodeId] == 0) {
+            if (node.startChildren == -1) {
+                nodeIds[idx] = nodeId;
+                needChild = 1;
+            } else {
+                count += node.countChildren;
+                split[nodeId] = 1;
+            }
+        }
+    } else {
+        int parentNodeId = node.parent;
+        if (parentNodeId != -1) {
+            Node parent = nodes[parentNodeId];
+            float parentSize = computeSizeGPU(boxes[parentNodeId], viewpoint);
+            if (parentSize < targetSize) {
+                split[parentNodeId] = 0;
+                count = 0;
+            }
+        }
+    }
+
+    needsChildren[idx] = needChild;
+    nodeCounts[idx] = count;
+}
