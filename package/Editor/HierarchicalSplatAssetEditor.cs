@@ -32,25 +32,20 @@ namespace HierarchicalSplatting.Editor
             EditorGUILayout.IntField("Version", hs.formatVersion);
             GUI.backgroundColor = prevBackColor;
 
-            long sizePos = hs.posData?.dataSize ?? 0;
-            long sizeOther = hs.otherData?.dataSize ?? 0;
-            long sizeColor = hs.colorData?.dataSize ?? 0;
-            long sizeSHs = 0;
-            if (hs.shData != null)
-            {
-                for (int i = 0; i < hs.shData.Length; i++)
-                {
-                    sizeSHs += hs.shData[i].dataSize;
-                }
-            }
-            long sizeNodes = hs.nodeData?.dataSize ?? 0;
-            long sizeBoxes = hs.boxData?.dataSize ?? 0;
+            long sizePos = hs.Pos.Length * 3 * sizeof(float);
+            long sizeSHs = hs.SHs.Length * 48 * sizeof(float);
+            long sizeRots = hs.Rots.Length * 4 * sizeof(float);
+            long sizeScales = hs.Scales.Length * 3 * sizeof(float);
+            long sizeAlphas = hs.Alphas.Length * sizeof(float);
+            long sizeNodes = hs.Nodes.Length * 7 * sizeof(int);
+            long sizeBoxes = hs.Boxes.Length * 8 * sizeof(float);
 
-            long totalSize = sizePos + sizeOther + sizeColor + sizeSHs + sizeNodes + sizeBoxes;
+            long totalSize = sizePos + sizeSHs + sizeRots + sizeScales + sizeAlphas + sizeNodes + sizeBoxes;
 
             string formattedSizePos = EditorUtility.FormatBytes(sizePos);
-            string formattedSizeOther = EditorUtility.FormatBytes(sizeOther);
-            string formattedSizeColor = EditorUtility.FormatBytes(sizeColor);
+            string formattedSizeRots = EditorUtility.FormatBytes(sizeRots);
+            string formattedSizeScales = EditorUtility.FormatBytes(sizeScales);
+            string formattedSizeAlphas = EditorUtility.FormatBytes(sizeAlphas);
             string formattedSizeSHs = EditorUtility.FormatBytes(sizeSHs);
             string formattedSizeNodes = EditorUtility.FormatBytes(sizeNodes);
             string formattedSizeBoxes = EditorUtility.FormatBytes(sizeBoxes);
@@ -59,8 +54,9 @@ namespace HierarchicalSplatting.Editor
             EditorGUILayout.LabelField("Memory", formattedTotalSize);
             EditorGUI.indentLevel++;
             EditorGUILayout.LabelField("Positions", formattedSizePos);
-            EditorGUILayout.LabelField("Other Data", formattedSizeOther);
-            EditorGUILayout.LabelField("Colors", formattedSizeColor);
+            EditorGUILayout.LabelField("Scales", formattedSizeScales);
+            EditorGUILayout.LabelField("Rotations", formattedSizeRots);
+            EditorGUILayout.LabelField("Opacities", formattedSizeAlphas);
             EditorGUILayout.LabelField("SHs", formattedSizeSHs);
             EditorGUILayout.LabelField("Nodes", formattedSizeNodes);
             EditorGUILayout.LabelField("Boxes", formattedSizeBoxes);

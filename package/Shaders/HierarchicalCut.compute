@@ -1,0 +1,245 @@
+#pragma kernel changeNodesOnce
+#pragma kernel putNodes
+#pragma kernel countRenderIndicesIndexed
+#pragma kernel putRenderIndicesIndexed
+#pragma kernel setStarts
+#pragma kernel computeTsIndexed
+#pragma kernel Flagged
+#pragma kernel InclusiveSum
+
+struct Node {
+    int depth;
+    int parent;
+    int start;
+    int count_leafs;        
+    int count_merged;
+    int start_children;
+    int count_children;
+};
+
+struct Box {
+    float4 minn;
+    float4 maxx;
+};
+
+StructuredBuffer<Node> nodes;
+StructuredBuffer<Box> boxes;
+
+RWStructuredBuffer<int> cuda2cpu;              //unused
+RWStructuredBuffer<int> render_indices;
+RWStructuredBuffer<int> parent_indices;
+RWStructuredBuffer<int> nodes_of_render_indices;
+RWStructuredBuffer<int> splits;
+RWStructuredBuffer<int> node_indices;
+RWStructuredBuffer<int> new_node_indices;
+RWStructuredBuffer<int> nodes_to_expand;
+RWStructuredBuffer<float> interp_taus;
+RWStructuredBuffer<int> kids;
+RWStructuredBuffer<int> NdistI
+RWStructuredBuffer<int> NsrcI;
+RWStructuredBuffer<int> NsrcC;
+RWStructuredBuffer<int> numI;
+RWStructuredBuffer<int> outN;  //newN and newR
+
+float4 viewpoint; //campos
+float3 zdir;
+float target_size;
+int to_render_num;
+int new_gauss_count;
+int max_nodes; //num_active_nodes{_gpu}
+int new_max_nodes;
+int num_need_children;  //unused
+int num_to_expand;
+int N;
+
+bool inbox(Box box, float4 viewpoint) {
+    return all(viewpoint >= box.minn) && all(viewpoint <= box.maxx);
+}
+
+float pointboxdist(Box box, float4 viewpoint) {
+    float4 closest = clamp(viewpoint, box.minn, boxx);
+    return length(viewpoint - closest);
+}
+
+float computeSizeGPU(Box box, float4 viewpoint, float3 zdir) {
+    if (inbox(box, viewpoint)) return 1e30;  // FLT_MAX
+    float min_dist = pointboxdist(box, viewpoint);
+    return box.minn[3] / min_dist;
+}
+
+[numthreads(1024, 1, 1)]
+void ChangeNodesOnce(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= max_nodes) 
+        return;
+
+    int node_id = node_indices[idx];
+    Node node = nodes[node_id];
+    float size = computeSizeGPU(boxes[node_id], viewpoint, zdir);
+
+    int count = 1;
+    int need_child = 0;
+
+    if (size >= target_size) 
+    {
+        if (node.depth > 0 && splits[node_id] == 0) {
+            if (node.start_children == -1) {
+                NdistI[idx] = node_id;
+                need_child = 1;
+            } 
+            else 
+            {
+                count += node.count_children;
+                splits[node_id] = 1;
+            }
+        }
+    } 
+    else 
+    {
+        int parent_node_id = node.parent;
+        if (parent_node_id != -1) {
+            Node parent_node = nodes[parent_node_id];
+            float parent_size = computeSizeGPU(boxes[parent_node_id], viewpoint, zdir);
+            if (parent_size < target_size) {
+                splits[parent_node_id] = 0;
+                count = 0;
+            }
+        }
+    }
+
+    NsrcC[idx] = need_child;
+    NsrcI[idx] = count;
+}
+
+[numthreads(1024, 1, 1)]
+void putNodes(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= max_nodes)
+        return;
+    int count = NsrcI[idx];
+    if (count == 0)
+        return;
+
+    int node_id = node_indices[idx];
+    Node node = nodes[node_id];
+    int offset = idx == 0 ? 0 : NdistI[idx - 1];
+
+    new_node_indices[offset] = node_id;
+    for (int i = 1; i < count; i++)
+        new_node_indices[offset + i] = node.start_children + i - 1;
+}
+
+[numthreads(1024, 1, 1)]
+void countRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= max_nodes)
+        return;
+    int node_idx = new_node_indices[idx];
+    Node node = nodes[node_idx];
+    int count = node.count_leafs;
+    if (node.depth > 0 && splits[node_idx] == 0)
+        count += node.count_merged;
+
+    NsrcI[idx] = count;
+}
+
+[numthreads(1024, 1, 1)]
+void putRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= max_nodes)
+        return;
+    
+    int node_idx = new_node_indices[idx];
+    Node node = nodes[node_idx];
+    int count = NsrcI[idx];
+    int offset = idx == 0 ? 0 : NdstI[idx - 1];
+    int start = node.start;
+
+    int parent_gaussian = -1;
+    if (node.parent != -1)
+        parent_gaussian = nodes[node.parent].start;
+    
+    for (int i = 0; i < count; i++) {
+        render_indices[offset + i] = node.start + i;
+        parent_indices[offset + i] = parent_gaussian;
+        nodes_of_render_indices[offset + i] = node_idx;
+    }
+}
+
+// num_blocks = (num_indices + 255) / 256;
+[numthreads(1024, 1, 1)]
+void setStarts(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx > = N)
+        return;
+    
+    int parent_id = nodes_to_expand[idx];
+    nodes[parent_id].start_children = NsrcI[idx] //starts[idx]
+}
+
+
+[numthreads(1024, 1, 1)]
+void computeTsIndexed(uint3 id : SV_DispatchThreadID) {
+    int idx = id.x;
+    if (idx >= to_render_num)
+        return;
+
+    int node_id = nodes_of_render_indices[idx];
+    Node node = nodes[node_id];
+
+    float tau_n;
+    if (node.parent == -1)
+        tau_n = 1.0f;
+    else 
+    {
+        float parent_size = computeSizeGPU(boxes[node.parent], viewpoint, zdir);
+
+        if (parent_size > 2.0f * target_size)
+            tau_n = 1.0f;
+        else
+        {
+            float size = computeSizeGPU(boxes[node_id], viewpoint, zdir);
+            float start = max(0.5f * parent_size, size);
+            float diff = parent_size - start;
+
+            if (diff <= 0)
+                tau_n = 1.0f;
+            else
+            {
+                float tdiff = max(0.0f, target_size - start);
+                tau_n = max(1.0f - (tdiff / diff), 0.0f);
+            }
+        }
+    }
+
+    interp_taus[idx] = tau_n;
+    kids[idx] = node.parent == -1 ? 1 : nodes[node.parent].count_children;
+}
+
+[numthreads(256, 1, 1)]
+void InclusiveSum(uint id : SV_DispatchThreadID)
+{
+    if (id >= N) return;
+
+    int sum = 0;
+    for (uint i = 0; i <= id; i++)
+    {
+        sum += NsrcI[i];
+    }
+    NdstI[id] = sum;
+    if (id == N - 1)
+        outN[0] = sum;
+}
+
+[numthreads(256, 1, 1)]
+void Flagged(uint id : SV_DispatchThreadID)
+{
+    if (id >= N) return;
+
+    if (NsrcC[id] == 1)
+    {
+        uint index;
+        InterlockedAdd(numI, 1, index);
+        nodes_to_expand[index] = Ndst[id];
+    }
+}

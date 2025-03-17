@@ -194,7 +194,7 @@ namespace HierarchicalSplatting.Editor
 
             bool batchSHFiles = false;    
 
-            string pathPos = Path.Combine(m_OutputFolder, $"{baseName}_pos.bytes");
+            /*string pathPos = Path.Combine(m_OutputFolder, $"{baseName}_pos.bytes");
             string pathOther = Path.Combine(m_OutputFolder, $"{baseName}_oth.bytes");
             string pathCol = Path.Combine(m_OutputFolder, $"{baseName}_col.bytes");
             string pathSh = Path.Combine(m_OutputFolder, baseName);
@@ -206,13 +206,13 @@ namespace HierarchicalSplatting.Editor
             CreateColorData(shs, alphas, pathCol, ref dataHash);
             string[] shPaths = CreateSHData(shs, pathSh, ref dataHash, ref batchSHFiles);
             CreateBoxData(boxes, pathBox, ref dataHash);
-            CreateNodeData(nodes, pathNod, ref dataHash);
+            CreateNodeData(nodes, pathNod, ref dataHash);*/
             asset.SetDataHash(dataHash);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Disposal of Objects", 0.8f);
 
-            DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
-            DisposeSkybox(ref skyboxpos, ref skyboxrot, ref skyboxscale, ref skyboxsh, ref skyboxalpha);
+            //DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
+            //DisposeSkybox(ref skyboxpos, ref skyboxrot, ref skyboxscale, ref skyboxsh, ref skyboxalpha);
 
             totalMemory = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
 
@@ -227,14 +227,17 @@ namespace HierarchicalSplatting.Editor
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Setup data onto asset", 0.95f);
 
-            TextAsset posAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathPos);
+            /*TextAsset posAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathPos);
             TextAsset otherAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathOther);
             TextAsset colAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathCol);
             TextAsset[] shAssets = GetSHTextAssets(ref shPaths);
             TextAsset boxAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathBox);
             TextAsset nodAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathNod);
 
-            asset.SetAssetFiles(posAsset, otherAsset, colAsset, shAssets, boxAsset, nodAsset);
+            asset.SetAssetFiles(posAsset, otherAsset, colAsset, shAssets, boxAsset, nodAsset);*/
+
+            asset.SetHierarchyData(eigenpos, eigenscale, eigenrot, alphas, shs, boxes, nodes);
+            asset.SetScaffoldData(skyboxpos, skyboxscale, skyboxrot, skyboxalpha, skyboxsh);
 
             var assetPath = Path.Combine(m_OutputFolder, $"{baseName}.asset");
             var savedAsset = CreateOrReplaceAsset(asset, assetPath);

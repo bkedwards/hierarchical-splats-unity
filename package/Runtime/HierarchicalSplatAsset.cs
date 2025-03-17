@@ -22,27 +22,25 @@ namespace HierarchicalSplatting.Runtime
         [SerializeField] int m_SplatCount;
         [SerializeField] int m_ScaffoldCount;
         [SerializeField] Hash128 m_DataHash;
-        [SerializeField] TextAsset m_PosData;
-        [SerializeField] TextAsset m_OtherData;
-        [SerializeField] TextAsset m_ColorData;
-        [SerializeField] TextAsset[] m_SHData;
-        [SerializeField] TextAsset m_BoxData;
-        [SerializeField] TextAsset m_NodeData;
-
-        [SerializeField] int[] m_nodeIndices;
 
         public int formatVersion => m_FormatVersion;
         public int splatCount => m_SplatCount;
         public int scaffoldCount => m_ScaffoldCount;
         public Hash128 dataHash => m_DataHash;
 
-        public TextAsset posData => m_PosData;
-        public TextAsset otherData => m_OtherData;
-        public TextAsset colorData => m_ColorData; 
-        public TextAsset[] shData => m_SHData; 
-        public TextAsset nodeData => m_NodeData;
-        public TextAsset boxData => m_BoxData;
-        public int[] nodeIndices => m_nodeIndices;
+        public NativeArray<Vector3> Pos;
+        public NativeArray<Vector3> Scales;
+        public NativeArray<Vector4> Rots;
+        public NativeArray<float> Alphas;
+        public NativeArray<SHs> SHs;
+        public NativeArray<Box> Boxes;
+        public NativeArray<Node> Nodes;
+
+        public NativeArray<Vector3> SkyPos;
+        public NativeArray<Vector3> SkyScale;
+        public NativeArray<Vector4> SkyRot;
+        public NativeArray<float> SkyAlpha;
+        public NativeArray<SHs> SkySH;
 
 
 
@@ -52,9 +50,6 @@ namespace HierarchicalSplatting.Runtime
             m_SplatCount = splats;
             m_ScaffoldCount = skyboxnum;
             m_FormatVersion = kCurrentVersion;
-            m_nodeIndices = new int[splats];
-            for (int i =0; i< splats; i++)
-                m_nodeIndices[i] = i;
         }
 
         public void SetDataHash(Hash128 hash)
@@ -62,14 +57,36 @@ namespace HierarchicalSplatting.Runtime
             m_DataHash = hash;
         }
 
-        public void SetAssetFiles(TextAsset dataPos, TextAsset dataOther, TextAsset dataColor, TextAsset[] dataSh, TextAsset dataBox, TextAsset dataNode)
+        public void SetHierarchyData(
+            NativeArray<Vector3> Pos,
+            NativeArray<Vector3> Scales,
+            NativeArray<Vector4> Rots,
+            NativeArray<float> Alphas,
+            NativeArray<SHs> SHs,
+            NativeArray<Box> Boxes,
+            NativeArray<Node> Nodes)
         {
-            m_PosData = dataPos;
-            m_OtherData = dataOther;
-            m_ColorData = dataColor;
-            m_SHData = dataSh;
-            m_BoxData = dataBox;
-            m_NodeData = dataNode;
+            this.Pos = Pos;
+            this.Scales = Scales;
+            this.Rots = Rots;
+            this.Alphas = Alphas;
+            this.SHs = SHs;
+            this.Boxes = Boxes;
+            this.Nodes = Nodes;
+        }
+
+        public void SetScaffoldData(
+            NativeArray<Vector3> SkyPos,
+            NativeArray<Vector3> SkyScale,
+            NativeArray<Vector4> SkyRot,
+            NativeArray<float> SkyAlpha,
+            NativeArray<SHs> SkySH)
+        {
+            this.SkyPos = SkyPos;
+            this.SkyScale = SkyScale;
+            this.SkyRot = SkyRot;
+            this.SkyAlpha = SkyAlpha;
+            this.SkySH = SkySH;
         }
 
         public static (int,int) CalcTextureSize(int splatCount)

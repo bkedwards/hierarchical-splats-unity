@@ -27,7 +27,7 @@ namespace HierarchicalSplatting.Editor
         SerializedProperty m_PropShaderSplats;
         SerializedProperty m_PropShaderComposite;
         SerializedProperty m_PropCSSplatUtilities;
-        SerializedProperty m_PropCSChangeNodes;
+        SerializedProperty m_PropCSHierarchicalCut;
 
         SerializedProperty m_PropTargetGranularity;
 
@@ -58,7 +58,7 @@ namespace HierarchicalSplatting.Editor
             m_PropShaderSplats = serializedObject.FindProperty("m_ShaderSplats");
             m_PropShaderComposite = serializedObject.FindProperty("m_ShaderComposite");
             m_PropCSSplatUtilities = serializedObject.FindProperty("m_CSSplatUtilities");
-            m_PropCSChangeNodes = serializedObject.FindProperty("m_CSChangeNodes");
+            m_PropCSHierarchicalCut = serializedObject.FindProperty("m_CSHierarchicalCut");
             
             s_AllEditors.Add(this);
         }
@@ -93,7 +93,7 @@ namespace HierarchicalSplatting.Editor
                 EditorGUILayout.PropertyField(m_PropShaderSplats);
                 EditorGUILayout.PropertyField(m_PropShaderComposite);
                 EditorGUILayout.PropertyField(m_PropCSSplatUtilities);
-                EditorGUILayout.PropertyField(m_PropCSChangeNodes);
+                EditorGUILayout.PropertyField(m_PropCSHierarchicalCut);
             }
             bool validAndEnabled = hs && hs.enabled && hs.gameObject.activeInHierarchy && hs.HasValidAsset;
             if (!validAndEnabled)// && !hs.HasValidRenderSetup)
