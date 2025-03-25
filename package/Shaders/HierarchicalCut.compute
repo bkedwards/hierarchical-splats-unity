@@ -25,7 +25,6 @@ struct Box {
 StructuredBuffer<Node> nodes;
 StructuredBuffer<Box> boxes;
 
-RWStructuredBuffer<int> cuda2cpu;              //unused
 RWStructuredBuffer<int> render_indices;
 RWStructuredBuffer<int> parent_indices;
 RWStructuredBuffer<int> nodes_of_render_indices;
@@ -38,18 +37,13 @@ RWStructuredBuffer<int> kids;
 RWStructuredBuffer<int> NdistI
 RWStructuredBuffer<int> NsrcI;
 RWStructuredBuffer<int> NsrcC;
-RWStructuredBuffer<int> numI;
+RWStructuredBuffer<int> numI; //num_need_children
 RWStructuredBuffer<int> outN;  //newN and newR
 
 float4 viewpoint; //campos
-float3 zdir;
 float target_size;
 int to_render_num;
-int new_gauss_count;
 int max_nodes; //num_active_nodes{_gpu}
-int new_max_nodes;
-int num_need_children;  //unused
-int num_to_expand;
 int N;
 
 bool inbox(Box box, float4 viewpoint) {
@@ -61,7 +55,7 @@ float pointboxdist(Box box, float4 viewpoint) {
     return length(viewpoint - closest);
 }
 
-float computeSizeGPU(Box box, float4 viewpoint, float3 zdir) {
+float computeSizeGPU(Box box, float4 viewpoint) {
     if (inbox(box, viewpoint)) return 1e30;  // FLT_MAX
     float min_dist = pointboxdist(box, viewpoint);
     return box.minn[3] / min_dist;
@@ -75,7 +69,7 @@ void ChangeNodesOnce(uint3 id : SV_DispatchThreadID) {
 
     int node_id = node_indices[idx];
     Node node = nodes[node_id];
-    float size = computeSizeGPU(boxes[node_id], viewpoint, zdir);
+    float size = computeSizeGPU(boxes[node_id], viewpoint);
 
     int count = 1;
     int need_child = 0;
@@ -99,7 +93,7 @@ void ChangeNodesOnce(uint3 id : SV_DispatchThreadID) {
         int parent_node_id = node.parent;
         if (parent_node_id != -1) {
             Node parent_node = nodes[parent_node_id];
-            float parent_size = computeSizeGPU(boxes[parent_node_id], viewpoint, zdir);
+            float parent_size = computeSizeGPU(boxes[parent_node_id], viewpoint);
             if (parent_size < target_size) {
                 splits[parent_node_id] = 0;
                 count = 0;
@@ -192,13 +186,13 @@ void computeTsIndexed(uint3 id : SV_DispatchThreadID) {
         tau_n = 1.0f;
     else 
     {
-        float parent_size = computeSizeGPU(boxes[node.parent], viewpoint, zdir);
+        float parent_size = computeSizeGPU(boxes[node.parent], viewpoint);
 
         if (parent_size > 2.0f * target_size)
             tau_n = 1.0f;
         else
         {
-            float size = computeSizeGPU(boxes[node_id], viewpoint, zdir);
+            float size = computeSizeGPU(boxes[node_id], viewpoint);
             float start = max(0.5f * parent_size, size);
             float diff = parent_size - start;
 

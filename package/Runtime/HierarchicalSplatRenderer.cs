@@ -9,7 +9,6 @@ using Unity.Profiling;
 using Unity.Profiling.LowLevel;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.Rendering;
 using UnityEngine.XR;
 using GaussianSplatting.Runtime;
@@ -182,16 +181,17 @@ namespace HierarchicalSplatting.Runtime
         }*/
         void OnPreCullCamera(Camera cam)
         {
-
+            hs.CalcViewData(cam);
             frameCounter++;
             cleanup |= frameCounter % 10 == 0;
             if (frameCounter == 1 || frameCounter % 2 == 0)
             {
-                hs.CalcViewData(cam);
+
                 if (frameCounter == 1)
                 {
                    curr_res = hs.CreateHierarchicalCut(false);
                 }
+                Debug.Log(" (195) num_get_children: " + curr_res.Item1.ToString());
                 if (curr_res.Item1 != 0)
                     hs.DispatchSetStarts(1024);
                 curr_res = hs.CreateHierarchicalCut(cleanup);
@@ -220,8 +220,8 @@ namespace HierarchicalSplatting.Runtime
         [Range(1,30)] [Tooltip("Sort splats only every N frames")]
         public int m_SortNthFrame = 1;
         [Range(1.00f, 20.0f)] [Tooltip("Granularity threshold for Node inclusion")]
-        public float m_targetGranularity = 3.0f;
-        public float m_targetSize;
+        public float tau = 9.0f;
+        public float sizeLimit = 0.03f;
         public Shader m_ShaderSplats;
         public Shader m_ShaderComposite;
         [Tooltip("Gaussian splatting compute shader")]
@@ -234,50 +234,39 @@ namespace HierarchicalSplatting.Runtime
         int ALLGAUSS;
         int new_node_count;
         int max_nodes; //GAUSS_MEMLIMIT
-        int new_gauss_count;
         int to_render_num;
-        int num_node_indices;
         int num_need_children;
         int num_active_nodes;
         int nodes_offset = 0;
         int gaussians_offset = 0;
         int skyboxoffset;
-        int numI;
-        int sizeLimit;
         Vector4 m_Viewpoint;
-        Vector3 m_ZDirection;
+        //Vector3 m_ZDirection;
 
-        NativeArray<Vector3> pos_to_copy;
-        NativeArray<Vector3> scales_to_copy;
-        NativeArray<Vector4> rots_to_copy;
-        NativeArray<float> alphas_to_copy;
-        NativeArray<SHs> shs_to_copy;
-        NativeArray<Node> nodes_to_copy;
-        NativeArray<Box> boxes_to_copy;
-
+        // Believe that these are necessary for rendering.
         NativeArray<Vector3> pos_to_render;
         NativeArray<Vector3> scales_to_render;
         NativeArray<Vector4> rots_to_render;
         NativeArray<float> alphas_to_render;
         NativeArray<SHs> shs_to_render;
+
+        // Unsure if these are necessary though
         NativeArray<Box> boxes_to_render;
         NativeArray<Node> nodes_to_render;
 
-        NativeArray<int> cuda2cpu;
+        int[] cuda2cpu;
         int[] package_parent_starts;
         int[] need_children;
-        NativeArray<int> render_indices;
-        NativeArray<int> parent_indices;
-        NativeArray<int> nodes_of_render_indices;
-        NativeArray<int> splits;
-        NativeArray<int> node_indices; //active_nodes
-        NativeArray<int> nodes_to_expand;
-        NativeArray<float> interp_taus;
-        NativeArray<int> kids;
+        int[] render_indices;
+        int[] parent_indices;
+        int[] nodes_of_render_indices;
+        int[] splits;
+        int[] node_indices; //active_nodes
+        float[] interp_taus;
+        int[] kids;
 
         GraphicsBuffer nodesBuff;
         GraphicsBuffer boxesBuff;
-        GraphicsBuffer cuda2cpuBuff;
         GraphicsBuffer renderIndicesBuff;
         GraphicsBuffer parentIndicesBuff;
         GraphicsBuffer nodesOfRenderIndicesBuff;
@@ -389,7 +378,7 @@ namespace HierarchicalSplatting.Runtime
                 return;
 
             //Calculate GAUSS_MEMLIMIT and ALLGAUSS
-            GAUSS_MEMLIMIT = unchecked((16000 * 1000000 - (484 * asset.scaffoldCount + 168)) / 681);
+            GAUSS_MEMLIMIT = (int)((16000L * 1000000L - (484L * asset.scaffoldCount + 168L)) / 681L);
             if (GAUSS_MEMLIMIT < 0)
             {
                 Debug.LogError("Memory budget insufficient");
@@ -399,14 +388,6 @@ namespace HierarchicalSplatting.Runtime
             skyboxoffset = asset.scaffoldCount;
 
             ALLGAUSS = (GAUSS_MEMLIMIT + asset.scaffoldCount);
-
-            pos_to_copy = new NativeArray<Vector3>(GAUSS_MEMLIMIT * 3 * sizeof(float), Allocator.Persistent);
-            scales_to_copy = new NativeArray<Vector3>(GAUSS_MEMLIMIT * 3 * sizeof(float), Allocator.Persistent);
-            rots_to_copy = new NativeArray<Vector4>(GAUSS_MEMLIMIT * 4 * sizeof(float), Allocator.Persistent);
-            alphas_to_copy= new NativeArray<float>(GAUSS_MEMLIMIT * sizeof(float), Allocator.Persistent);
-            shs_to_copy = new NativeArray<SHs>(GAUSS_MEMLIMIT * 48 * sizeof(float), Allocator.Persistent);
-            nodes_to_copy = new NativeArray<Node>(GAUSS_MEMLIMIT * 7 * sizeof(int), Allocator.Persistent);
-            boxes_to_copy = new NativeArray<Box>(GAUSS_MEMLIMIT * 8 * sizeof(float), Allocator.Persistent);
             
             pos_to_render = new NativeArray<Vector3>(ALLGAUSS * 3 * sizeof(float), Allocator.Persistent);
             scales_to_render = new NativeArray<Vector3>(ALLGAUSS * 3 * sizeof(float), Allocator.Persistent);
@@ -416,20 +397,20 @@ namespace HierarchicalSplatting.Runtime
             boxes_to_render = new NativeArray<Box>(ALLGAUSS * 8 * sizeof(float), Allocator.Persistent);
             nodes_to_render = new NativeArray<Node>(ALLGAUSS * 7 * sizeof(int), Allocator.Persistent);
 
-            cuda2cpu = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
+            cuda2cpu = new int [GAUSS_MEMLIMIT];;
             package_parent_starts = new int[GAUSS_MEMLIMIT];
             need_children = new int[GAUSS_MEMLIMIT];
-            render_indices = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            parent_indices = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            nodes_of_render_indices = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            splits = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            node_indices = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            nodes_to_expand = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
-            interp_taus = new NativeArray<float>(GAUSS_MEMLIMIT * sizeof(float), Allocator.Persistent);
-            kids = new NativeArray<int>(GAUSS_MEMLIMIT * sizeof(int), Allocator.Persistent);
+            render_indices = new int[GAUSS_MEMLIMIT];
+            parent_indices = new int[GAUSS_MEMLIMIT];
+            nodes_of_render_indices = new int[GAUSS_MEMLIMIT];
+            splits = new int [GAUSS_MEMLIMIT];
+            node_indices = new int [GAUSS_MEMLIMIT];
+            interp_taus = new float[GAUSS_MEMLIMIT];
+            kids = new int[GAUSS_MEMLIMIT];
 
             node_indices[0] = 0;
             num_active_nodes = 1;
+            max_nodes = GAUSS_MEMLIMIT;
             AddNodePackage(new int[] {0}, new int[] {-1});
             InitGraphicsBuffers();
             SetGraphicsBuffers();
@@ -487,12 +468,15 @@ namespace HierarchicalSplatting.Runtime
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(float) * 8);
             boxesBuff.SetData(asset.Boxes);
 
-            cuda2cpuBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             renderIndicesBuff= new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             parentIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             nodesOfRenderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             splitsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
+            splitsBuff.SetData(splits);
+            splits = null;
             nodeIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
+            nodeIndicesBuff.SetData(node_indices);
+            node_indices = null;
             nodesToExpandBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             interpTausBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             kidsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
@@ -508,7 +492,6 @@ namespace HierarchicalSplatting.Runtime
         {
             m_CSHierarchicalCut.SetBuffer(0, "nodes", nodesBuff);
             m_CSHierarchicalCut.SetBuffer(0, "boxes", boxesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "cuda2cpu", cuda2cpuBuff);
             m_CSHierarchicalCut.SetBuffer(0, "render_indices", renderIndicesBuff);
             m_CSHierarchicalCut.SetBuffer(0, "parent_indices", parentIndicesBuff);
             m_CSHierarchicalCut.SetBuffer(0, "nodes_of_render_indices", nodesOfRenderIndicesBuff);
@@ -524,12 +507,9 @@ namespace HierarchicalSplatting.Runtime
             m_CSHierarchicalCut.SetBuffer(0, "numI", numIBuff);
             m_CSHierarchicalCut.SetBuffer(0, "outN", outNBuff);
 
-            m_CSHierarchicalCut.SetFloat("target_size", m_targetSize);
+            m_CSHierarchicalCut.SetFloat("target_size", sizeLimit);
             m_CSHierarchicalCut.SetVector("viewpoint",m_Viewpoint);
-            m_CSHierarchicalCut.SetVector("zdir", m_ZDirection);
             m_CSHierarchicalCut.SetInt("max_nodes", GAUSS_MEMLIMIT);
-            m_CSHierarchicalCut.SetInt("new_gauss_count", new_gauss_count);
-            m_CSHierarchicalCut.SetInt("num_need_children", num_need_children);
         }
 
         bool AddNodePackage(int[] n_indices, int[] p_indices)
@@ -545,9 +525,9 @@ namespace HierarchicalSplatting.Runtime
             if (node_copy_count + nodes_offset > GAUSS_MEMLIMIT ||
                 gaussian_copy_count + gaussians_offset > GAUSS_MEMLIMIT)
             {
-                if (m_targetGranularity == 0)
-                    m_targetGranularity = 1.0f;
-                m_targetGranularity *= 1.05f;
+                if (tau == 0)
+                    tau = 1.0f;
+                tau *= 1.05f;
                 return false;
             }
             
@@ -562,34 +542,32 @@ namespace HierarchicalSplatting.Runtime
                 for (int j = 0; j < count; j++)
                 {
                     int src = node.start + j;
-                    int dst = copied_gaussians + j;
+                    int dst = skyboxoffset + gaussians_offset + copied_gaussians + j;
+                    /*
                     pos_to_copy[dst] = asset.Pos[src];
                     rots_to_copy[dst] = asset.Rots[src];
                     shs_to_copy[dst] = asset.SHs[src];
                     alphas_to_copy[dst] = asset.Alphas[src];
                     scales_to_copy[dst] = asset.Scales[src];
+                    */
+                    pos_to_render[dst] = asset.Pos[src];
+                    rots_to_render[dst] = asset.Rots[src];
+                    shs_to_render[dst] = asset.SHs[src];
+                    alphas_to_render[dst] = asset.Alphas[src];
+                    scales_to_render[dst] = asset.Scales[src];
                 }
 
                 node.start_children = -1;
                 node.start = gaussians_offset + copied_gaussians;
                 node.parent = parent;
 
-                nodes_to_copy[i] = node;
-                boxes_to_copy[i] = asset.Boxes[id];
+                nodes_to_render[nodes_offset + i] = node;
+                boxes_to_render[nodes_offset + i] = asset.Boxes[id];
 
                 cuda2cpu[nodes_offset + i] = id;
 
                 copied_gaussians += count;
             }
-            NativeArray<Vector3>.Copy(pos_to_copy, 0, pos_to_render, skyboxoffset + gaussians_offset, gaussian_copy_count);
-            NativeArray<Vector4>.Copy(rots_to_copy, 0, rots_to_render, skyboxoffset + gaussians_offset, gaussian_copy_count);
-            NativeArray<SHs>.Copy(shs_to_copy, 0, shs_to_render, skyboxoffset + gaussians_offset, gaussian_copy_count);
-            NativeArray<float>.Copy(alphas_to_copy, 0, alphas_to_render, skyboxoffset + gaussians_offset, gaussian_copy_count);
-            NativeArray<Vector3>.Copy(scales_to_copy, 0, scales_to_render, skyboxoffset + gaussians_offset, gaussian_copy_count);
-
-            NativeArray<Node>.Copy(nodes_to_copy, 0, nodes_to_render, nodes_offset, node_copy_count);
-            NativeArray<Box>.Copy(boxes_to_copy, 0, boxes_to_render, nodes_offset, node_copy_count);
-
             gaussians_offset += gaussian_copy_count;
             nodes_offset += node_copy_count;
 
@@ -647,14 +625,22 @@ namespace HierarchicalSplatting.Runtime
                 int[] package_parent_indices;
 
                 int num_new_parents = createNodePackage(out package_indices, out package_parent_indices);
+                Debug.Log(" (629) num_new_parents: " + num_new_parents.ToString());
                 if (AddNodePackage(package_indices, package_parent_indices))
                 {
                     NsrcIBuff.GetData(package_parent_starts);
-
+                    /*
+                    string ans = "";
+                    for (int i = 0; i<10; i++) 
+                        ans += package_parent_starts[i].ToString() + " ";
+                    Debug.Log("package_parent_starts: ", ans)
+                    */
                     num_transferred = package_indices.Length;
+                    
                     num_get_children = num_new_parents;
                 }
             }
+            Debug.Log(" (639) num_transferred: " + num_transferred.ToString());
             return (num_get_children, num_transferred);
         }
 
@@ -666,12 +652,14 @@ namespace HierarchicalSplatting.Runtime
             DispatchFlaggedShader(1024, num_active_nodes);
             DispatchInclusiveSumShader(1024, num_active_nodes);
 
-            int [] buffer = new int[1];
+            int [] buffer = new int[1];                   // Try to find a potential fix??
             numIBuff.GetData(buffer);
             num_need_children = buffer[0];
-            
+            Debug.Log("(652) num_need_children: " + num_need_children.ToString());
             outNBuff.GetData(buffer);
             new_node_count = buffer[0];
+
+            Debug.Log("(656) new_node_count: " + new_node_count.ToString());
 
             if (new_node_count > max_nodes)
                 return false;
@@ -686,6 +674,7 @@ namespace HierarchicalSplatting.Runtime
 
             outNBuff.GetData(buffer);
             to_render_num = buffer[0];
+            Debug.Log("(670) to_render_num: " + to_render_num.ToString());
             return true;
         }
 
@@ -736,6 +725,22 @@ namespace HierarchicalSplatting.Runtime
             int kernel = m_CSHierarchicalCut.FindKernel("computeTsIndexed");
             m_CSHierarchicalCut.SetInt("to_render_num", to_render_num);
             m_CSHierarchicalCut.Dispatch(kernel, threads, 1, 1);
+            
+            renderIndicesBuff.GetData(render_indices);
+            string ans = "";
+            for (int i = 0; i<10; i++) 
+                ans += render_indices[i].ToString() + " ";
+            Debug.Log("render_indices: " + ans);
+            interpTausBuff.GetData(interp_taus);
+            ans = "";
+            for (int i = 0; i<10; i++) 
+                ans += interp_taus[i].ToString() + " ";
+            Debug.Log("interp_taus: " +  ans);
+            kidsBuff.GetData(kids);
+            ans = "";
+            for (int i = 0; i<10; i++) 
+                ans += kids[i].ToString() + " ";
+            Debug.Log("kids: " +  ans);
         }
 
         /*void InitSortBuffers(int count)
@@ -867,7 +872,6 @@ namespace HierarchicalSplatting.Runtime
 
             nodesBuff?.Release();
             boxesBuff?.Release();
-            cuda2cpuBuff?.Release();
             renderIndicesBuff?.Release();
             parentIndicesBuff?.Release();
             nodesOfRenderIndicesBuff?.Release();
@@ -885,7 +889,6 @@ namespace HierarchicalSplatting.Runtime
 
             nodesBuff = null;
             boxesBuff = null;
-            cuda2cpuBuff = null;
             renderIndicesBuff = null;
             parentIndicesBuff = null;
             nodesOfRenderIndicesBuff = null;
@@ -965,15 +968,7 @@ namespace HierarchicalSplatting.Runtime
             Vector4 camPos = cam.transform.position;
 
             m_Viewpoint = camPos;
-            m_ZDirection = cam.transform.forward;
-
-            float fovy = cam.fieldOfView;  
-            float aspect = cam.aspect;
-
-            float fovx = 2.0f * Mathf.Atan(Mathf.Tan(fovy * Mathf.Deg2Rad * 0.5f) * aspect) * Mathf.Rad2Deg;
-
-            float tan_fovx = Mathf.Tan(fovx * Mathf.Deg2Rad * 0.5f); 
-            float tan_fovy = Mathf.Tan(fovy * Mathf.Deg2Rad * 0.5f);
+            //m_ZDirection = cam.transform.forward;
         }
 
         /*internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
@@ -1005,18 +1000,17 @@ namespace HierarchicalSplatting.Runtime
             cmd.EndSample(s_ProfSort);
         }*/
 
-        public float tau2Limit(Camera cam) 
+        public void tau2Limit(Camera cam) 
         {
-            float tau = m_targetGranularity;
             float fovy = cam.fieldOfView;  
             float aspect = cam.aspect;
 
-            float fovx = 2.0f * Mathf.Atan(Mathf.Tan(fovy * Mathf.Deg2Rad * 0.5f) * aspect) * Mathf.Rad2Deg;
-
+            float fovx = 2.0f * Mathf.Atan(Mathf.Tan(fovy * 0.5f) * aspect);
+            float tan_fovx = Mathf.Tan(fovx * 0.5f);
         	if (tau == 0)
-		        return 0;
-
-	        return (2.0f * (tau + 0.5f)) * fovx / (0.5f * cam.pixelWidth); //Screen.Width?
+		        sizeLimit = 0;
+            else
+	            sizeLimit = (2.0f * (tau + 0.5f)) * fovx / (0.5f * cam.pixelWidth); //Screen.Width?
         }
         public void Update()
         {
