@@ -29,7 +29,7 @@ namespace HierarchicalSplatting.Editor
         SerializedProperty m_PropCSSplatUtilities;
         SerializedProperty m_PropCSHierarchicalCut;
 
-        SerializedProperty m_PropTargetGranularity;
+        SerializedProperty m_PropTau;
 
         bool m_ExportBakeTransform;
         bool m_ResourcesExpanded = false;
@@ -51,10 +51,9 @@ namespace HierarchicalSplatting.Editor
 
         public void OnEnable()
         {
-            m_PropAsset = serializedObject.FindProperty("m_Asset");
-            m_PropTargetGranularity = serializedObject.FindProperty("m_targetGranularity");
             m_ExportBakeTransform = EditorPrefs.GetBool(kPrefExportBake, false);
             m_PropAsset = serializedObject.FindProperty("m_Asset");
+            m_PropTau = serializedObject.FindProperty("tau");
             m_PropShaderSplats = serializedObject.FindProperty("m_ShaderSplats");
             m_PropShaderComposite = serializedObject.FindProperty("m_ShaderComposite");
             m_PropCSSplatUtilities = serializedObject.FindProperty("m_CSSplatUtilities");
@@ -86,7 +85,7 @@ namespace HierarchicalSplatting.Editor
                     : "Hierarchical Splat asset is not assigned or is empty";
                 EditorGUILayout.HelpBox(msg, MessageType.Error);
             }
-            EditorGUILayout.PropertyField(m_PropTargetGranularity);
+            EditorGUILayout.PropertyField(m_PropTau);
             m_ResourcesExpanded = EditorGUILayout.Foldout(m_ResourcesExpanded, "Resources", true, EditorStyles.foldoutHeader);
             if (m_ResourcesExpanded)
             {
@@ -121,7 +120,7 @@ namespace HierarchicalSplatting.Editor
 
             EditorGUILayout.Space();
             GUILayout.Label("Render Options", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(m_PropTargetGranularity);
+            EditorGUILayout.PropertyField(m_PropTau);
 
             EditorGUILayout.Space();
             m_ResourcesExpanded = EditorGUILayout.Foldout(m_ResourcesExpanded, "Resources", true, EditorStyles.foldoutHeader);

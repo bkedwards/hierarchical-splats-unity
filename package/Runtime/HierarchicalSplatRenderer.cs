@@ -199,7 +199,7 @@ namespace HierarchicalSplatting.Runtime
             }
             hs.tau2Limit(cam);
             hs.DispatchComputeTsIndexed(1024);
-            //hs.forward();
+            //hs.forward();*/
         }
     
     }
@@ -207,7 +207,7 @@ namespace HierarchicalSplatting.Runtime
     [ExecuteInEditMode]
     public class HierarchicalSplatRenderer : MonoBehaviour
     {
-        public HierarchicalSplatAsset m_Asset;
+        [SerializeField] public HierarchicalSplatAsset m_Asset;
 
         [Range(0.1f, 2.0f)] [Tooltip("Additional scaling factor for the splats")]
         public float m_SplatScale = 1.0f;
@@ -220,7 +220,7 @@ namespace HierarchicalSplatting.Runtime
         [Range(1,30)] [Tooltip("Sort splats only every N frames")]
         public int m_SortNthFrame = 1;
         [Range(1.00f, 20.0f)] [Tooltip("Granularity threshold for Node inclusion")]
-        public float tau = 9.0f;
+        [SerializeField] public float tau = 9.0f;
         public float sizeLimit = 0.03f;
         public Shader m_ShaderSplats;
         public Shader m_ShaderComposite;
@@ -244,15 +244,15 @@ namespace HierarchicalSplatting.Runtime
         //Vector3 m_ZDirection;
 
         // Believe that these are necessary for rendering.
-        NativeArray<Vector3> pos_to_render;
-        NativeArray<Vector3> scales_to_render;
-        NativeArray<Vector4> rots_to_render;
-        NativeArray<float> alphas_to_render;
-        NativeArray<SHs> shs_to_render;
+        Vector3[] pos_to_render;
+        Vector3[] scales_to_render;
+        Vector4[] rots_to_render;
+        float[] alphas_to_render;
+        SHs[] shs_to_render;
 
         // Unsure if these are necessary though
-        NativeArray<Box> boxes_to_render;
-        NativeArray<Node> nodes_to_render;
+        Box[] boxes_to_render;
+        Node[] nodes_to_render;
 
         int[] cuda2cpu;
         int[] package_parent_starts;
@@ -374,30 +374,37 @@ namespace HierarchicalSplatting.Runtime
 
         void CreateResourcesForAsset()
         {
+            Debug.Log("CreateResourcesForAsset");
             if (!HasValidAsset)
                 return;
 
             //Calculate GAUSS_MEMLIMIT and ALLGAUSS
-            GAUSS_MEMLIMIT = (int)((16000L * 1000000L - (484L * asset.scaffoldCount + 168L)) / 681L);
+            long budget = 16000L;
+            GAUSS_MEMLIMIT = (int)((budget * 1000000L - (484L * asset.scaffoldCount + 168L)) / 681L);
             if (GAUSS_MEMLIMIT < 0)
             {
                 Debug.LogError("Memory budget insufficient");
             }
             GAUSS_MEMLIMIT = asset.splatCount < GAUSS_MEMLIMIT ? asset.splatCount : GAUSS_MEMLIMIT;
+            Debug.Log("GAUSS_MEMLIMIT" + GAUSS_MEMLIMIT.ToString());
 
+            //GAUSS_MEMLIMIT = 10,387,668
+            //skyboxoffset = 100,000
             skyboxoffset = asset.scaffoldCount;
 
             ALLGAUSS = (GAUSS_MEMLIMIT + asset.scaffoldCount);
-            
-            pos_to_render = new NativeArray<Vector3>(ALLGAUSS * 3 * sizeof(float), Allocator.Persistent);
-            scales_to_render = new NativeArray<Vector3>(ALLGAUSS * 3 * sizeof(float), Allocator.Persistent);
-            rots_to_render = new NativeArray<Vector4>(ALLGAUSS * 4 * sizeof(float), Allocator.Persistent);
-            alphas_to_render= new NativeArray<float>(ALLGAUSS * sizeof(float), Allocator.Persistent);
-            shs_to_render = new NativeArray<SHs>(ALLGAUSS * 48 * sizeof(float), Allocator.Persistent);
-            boxes_to_render = new NativeArray<Box>(ALLGAUSS * 8 * sizeof(float), Allocator.Persistent);
-            nodes_to_render = new NativeArray<Node>(ALLGAUSS * 7 * sizeof(int), Allocator.Persistent);
+            Debug.Log("ALLGAUSS" + ALLGAUSS.ToString());
 
-            cuda2cpu = new int [GAUSS_MEMLIMIT];;
+            
+            pos_to_render = new Vector3 [ALLGAUSS];
+            scales_to_render = new Vector3 [ALLGAUSS];
+            rots_to_render = new Vector4 [ALLGAUSS];
+            alphas_to_render = new float[ALLGAUSS];
+            shs_to_render = new SHs [ALLGAUSS];
+            boxes_to_render = new Box [ALLGAUSS];
+            nodes_to_render = new Node [ALLGAUSS];
+            
+            cuda2cpu = new int [GAUSS_MEMLIMIT];
             package_parent_starts = new int[GAUSS_MEMLIMIT];
             need_children = new int[GAUSS_MEMLIMIT];
             render_indices = new int[GAUSS_MEMLIMIT];
@@ -473,7 +480,6 @@ namespace HierarchicalSplatting.Runtime
             nodesOfRenderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             splitsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             splitsBuff.SetData(splits);
-            splits = null;
             nodeIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             nodeIndicesBuff.SetData(node_indices);
             node_indices = null;
@@ -482,6 +488,8 @@ namespace HierarchicalSplatting.Runtime
             kidsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             NsrcIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
             NdstIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
+            NdstIBuff.SetData(splits);
+            splits = null;
             NsrcCBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
             newNodeIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             numIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(int));
@@ -680,6 +688,11 @@ namespace HierarchicalSplatting.Runtime
 
         public void DispatchChangeNodesShader(int threads) 
         {
+            if (m_CSHierarchicalCut == null)
+            {
+                Debug.LogError("Compute Shader m_CSHierarchicalCut is NOT assigned!");
+                return;
+            }
             int kernel = m_CSHierarchicalCut.FindKernel("changeNodesOnce");
             m_CSHierarchicalCut.Dispatch(kernel, threads, 1, 1);
         }
@@ -799,6 +812,7 @@ namespace HierarchicalSplatting.Runtime
 
         public void OnEnable()
         {
+            Debug.Log("OnEnable()");
             m_FrameCounter = 0;
             if (!resourcesAreSetUp)
                 return;
@@ -1021,6 +1035,7 @@ namespace HierarchicalSplatting.Runtime
                 m_PrevHash = curHash;
                 if (resourcesAreSetUp)
                 {
+                    Debug.Log("InsideUpdate()");
                     DisposeResourcesForAsset();
                     CreateResourcesForAsset();
                 }
