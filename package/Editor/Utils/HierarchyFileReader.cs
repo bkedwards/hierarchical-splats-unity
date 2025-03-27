@@ -38,13 +38,13 @@ namespace HierarchicalSplatting.Editor.Utils
 
         static void Load(
             string filename, 
-            out NativeArray<Vector3> pos,  
-            out NativeArray<SHs> shs, 
-            out NativeArray<float> alphas, 
-            out NativeArray<Vector3> scales, 
-            out NativeArray<Vector4> rot, 
-            out NativeArray<Node> nodes, 
-            out NativeArray<Box> boxes, 
+            out Vector3[] pos,  
+            out SHs[] shs, 
+            out float[] alphas, 
+            out Vector3[] scales, 
+            out Vector4[] rot, 
+            out Node[] nodes, 
+            out Box[] boxes, 
             bool debug=false) 
         {
             NativeArray<byte> rawPosData;
@@ -54,8 +54,6 @@ namespace HierarchicalSplatting.Editor.Utils
             NativeArray<byte> rawRotData;
             NativeArray<byte> rawNodeData;
             NativeArray<byte> rawBoxData;
-
-            const float kSH_C0 = 0.2820948f;
 
             using var fs = new FileStream(filename, FileMode.Open, FileAccess.Read);
             if (fs.Length == 0)
@@ -70,52 +68,91 @@ namespace HierarchicalSplatting.Editor.Utils
             {
                 rawPosData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
                 fs.Read(rawPosData);
-                pos = rawPosData.Reinterpret<Vector3>(1);
+                var VectorPosData = rawPosData.Reinterpret<Vector3>(1);
+                pos = new Vector3[P];
+                for (int i = 0; i < P; i++) {
+                    pos[i] = VectorPosData[i];
+                }
                 
                 rawRotData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector4>(), Allocator.Persistent);
                 fs.Read(rawRotData);
-                rot = rawRotData.Reinterpret<Vector4>(1);
+                var VectorRotData = rawRotData.Reinterpret<Vector4>(1);
+                rot = new Vector4[P];
+                for (int i = 0; i < P; i++) {
+                    rot[i] = VectorRotData[i];
+                }
 
                 rawScaleData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
                 fs.Read(rawScaleData);
-                scales = rawScaleData.Reinterpret<Vector3>(1);
+                var VectorScaleData = rawScaleData.Reinterpret<Vector3>(1);
+                scales = new Vector3[P];
+                for (int i = 0; i < P; i++) {
+                    scales[i] = new Vector3(
+                        Mathf.Exp(VectorScaleData[i].x),
+                        Mathf.Exp(VectorScaleData[i].y),
+                        Mathf.Exp(VectorScaleData[i].z)
+                    );
+                }
 
                 rawAlphaData = new NativeArray<byte>(P * sizeof(float), Allocator.Persistent);
                 fs.Read(rawAlphaData);
-                alphas = rawAlphaData.Reinterpret<float>(1);
+                var FloatAlphaData = rawAlphaData.Reinterpret<float>(1);
+                alphas = new float[P];
+                for (int i = 0; i < P; i++) {
+                    alphas[i] = FloatAlphaData[i];
+                }
 
                 rawSHData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<SHs>(), Allocator.Persistent);
                 fs.Read(rawSHData);
-                shs = rawSHData.Reinterpret<SHs>(1);
+                var SHsData = rawSHData.Reinterpret<SHs>(1);
+                shs = new SHs[P];
+                for (int i = 0; i < P; i++)
+                {
+                    shs[i] = SHsData[i];
+                }
                 // To Do: reorder SHs / scale color data
 
                 fs.Read(buffer, 0, 4);
                 int N = BitConverter.ToInt32(buffer, 0);
 
-                rawNodeData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Node>(), Allocator.Persistent);
+                rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Node>(), Allocator.Persistent);
                 fs.Read(rawNodeData);
-                nodes = rawNodeData.Reinterpret<Node>(1);
-  
+                var NodeData = rawNodeData.Reinterpret<Node>(1);
+                nodes = new Node[N];
+                for (int i = 0; i < N; i++)
+                {
+                    nodes[i] = NodeData[i];
+                }
 
-                rawBoxData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Box>(), Allocator.Persistent);
+                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Box>(), Allocator.Persistent);
                 fs.Read(rawBoxData);
-                boxes = rawBoxData.Reinterpret<Box>(1);
+                var BoxData = rawBoxData.Reinterpret<Box>(1);
+                boxes = new Box[N];
+                for (int i = 0; i < P; i++)
+                {
+                    boxes[i] = BoxData[i];
+                }
 
             }
             else 
             {
                 P = -P;
                 int halfSize = UnsafeUtility.SizeOf<short>(); // 2 bytes
-
+                Debug.Log("halfSize: " + halfSize.ToString());
                 rawPosData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
                 fs.Read(rawPosData);
-                pos = rawPosData.Reinterpret<Vector3>(1);
+                var VectorPosData = rawPosData.Reinterpret<Vector3>(1);
+                pos = new Vector3[P];
+                for (int i = 0; i < P; i++) {
+                    pos[i] = VectorPosData[i];
+                }
 
                 rawRotData = new NativeArray<byte>(P * 4 * halfSize, Allocator.Temp);
                 fs.Read(rawRotData);
                 NativeArray<short> halfrot = rawRotData.Reinterpret<short>(1);
+
                 
-                rot = new NativeArray<Vector4>(P, Allocator.Persistent);
+                rot = new Vector4[P];
                 for (int i = 0; i< P; i++)
                     rot[i] = new Vector4(
                         HalfToFloat(halfrot[i*4]),
@@ -128,13 +165,12 @@ namespace HierarchicalSplatting.Editor.Utils
                 rawScaleData = new NativeArray<byte>(P * 3 * halfSize, Allocator.Persistent);
                 fs.Read(rawScaleData);
                 NativeArray<short> halfscales = rawScaleData.Reinterpret<short>(1);
-
-                scales = new NativeArray<Vector3>(P, Allocator.Persistent);
+                scales = new Vector3[P];
                 for (int i = 0; i< P; i++)
                     scales[i] = new Vector3(
-                        HalfToFloat(halfscales[i*3]),
-                        HalfToFloat(halfscales[i*3 + 1]),
-                        HalfToFloat(halfscales[i*3 + 2])
+                        Mathf.Exp(HalfToFloat(halfscales[i*3])),
+                        Mathf.Exp(HalfToFloat(halfscales[i*3 + 1])),
+                        Mathf.Exp(HalfToFloat(halfscales[i*3 + 2]))
                     );
 
                 rawScaleData.Dispose();
@@ -143,7 +179,7 @@ namespace HierarchicalSplatting.Editor.Utils
                 fs.Read(rawAlphaData);
                 NativeArray<short> halfalphas = rawAlphaData.Reinterpret<short>(1);
 
-                alphas = new NativeArray<float>(P, Allocator.Persistent);
+                alphas = new float[P];
                 for (int i = 0; i < P; i++)
                     alphas[i] = HalfToFloat(halfalphas[i]);
 
@@ -153,44 +189,80 @@ namespace HierarchicalSplatting.Editor.Utils
                 fs.Read(rawSHData);
                 NativeArray<short> halfSHs = rawSHData.Reinterpret<short>(1);
 
-                shs = new NativeArray<SHs>(P, Allocator.Persistent);
+                shs = new SHs[P];
                 for (int i = 0; i < P; i++) 
                 {
-                    /*int baseIdx = i * 48;
                     SHs sh = new SHs();
-                    sh.dc0 = new Vector3(HalfToFloat(halfshs[baseIdx])* kSH_C0 + 0.5f, HalfToFloat(halfshs[baseIdx + 1])* kSH_C0 + 0.5f, HalfToFloat(halfshs[baseIdx + 2])* kSH_C0 + 0.5f);
+                    int baseIdx = i*48;
+                    sh.dc0 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx]),
+                            HalfToFloat(halfSHs[baseIdx + 1]),
+                            HalfToFloat(halfSHs[baseIdx + 2]));
+                    sh.sh1 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 3]),
+                            HalfToFloat(halfSHs[baseIdx + 4]),
+                            HalfToFloat(halfSHs[baseIdx + 5]));
+                    sh.sh2 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 6]),
+                            HalfToFloat(halfSHs[baseIdx + 7]),
+                            HalfToFloat(halfSHs[baseIdx + 8]));
+                    sh.sh3 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 9]),
+                            HalfToFloat(halfSHs[baseIdx + 10]),
+                            HalfToFloat(halfSHs[baseIdx + 11]));
+                    sh.sh4 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 12]),
+                            HalfToFloat(halfSHs[baseIdx + 13]),
+                            HalfToFloat(halfSHs[baseIdx + 14]));
+                    sh.sh5 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 15]),
+                            HalfToFloat(halfSHs[baseIdx + 16]),
+                            HalfToFloat(halfSHs[baseIdx + 17]));
+                    sh.sh6 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 18]),
+                            HalfToFloat(halfSHs[baseIdx + 19]),
+                            HalfToFloat(halfSHs[baseIdx + 20]));
+                    sh.sh7 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 21]),
+                            HalfToFloat(halfSHs[baseIdx + 22]),
+                            HalfToFloat(halfSHs[baseIdx + 23]));
+                    sh.sh8 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 24]),
+                            HalfToFloat(halfSHs[baseIdx + 25]),
+                            HalfToFloat(halfSHs[baseIdx + 26]));
+                    sh.sh9 = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 27]),
+                            HalfToFloat(halfSHs[baseIdx + 28]),
+                            HalfToFloat(halfSHs[baseIdx + 29]));
+                    sh.shA = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 30]),
+                            HalfToFloat(halfSHs[baseIdx + 31]),
+                            HalfToFloat(halfSHs[baseIdx + 32]));
+                    sh.shB = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 33]),
+                            HalfToFloat(halfSHs[baseIdx + 34]),
+                            HalfToFloat(halfSHs[baseIdx + 35]));
+                    sh.shC = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 36]),
+                            HalfToFloat(halfSHs[baseIdx + 37]),
+                            HalfToFloat(halfSHs[baseIdx + 38]));
+                    sh.shD = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 39]),
+                            HalfToFloat(halfSHs[baseIdx + 40]),
+                            HalfToFloat(halfSHs[baseIdx + 41]));
+                    sh.shE = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 42]),
+                            HalfToFloat(halfSHs[baseIdx + 43]),
+                            HalfToFloat(halfSHs[baseIdx + 44]));
+                    sh.shF = new Vector3(
+                            HalfToFloat(halfSHs[baseIdx + 45]),
+                            HalfToFloat(halfSHs[baseIdx + 46]),
+                            HalfToFloat(halfSHs[baseIdx + 47]));
+                    shs[i] = sh;
 
-                    for (int j = 0; j < 15; j++) 
-                    {
-                        int idx1 = baseIdx + (j + 3);
-                        int idx2 = baseIdx + (j + 18);
-                        int idx3 = baseIdx + (j + 33);
 
-                        float f1 = HalfToFloat(halfshs[idx1]);
-                        float f2 = HalfToFloat(halfshs[idx2]);
-                        float f3 = HalfToFloat(halfshs[idx3]);
-                        switch (j)
-                        {
-                            case 0: sh.sh1 = new Vector3(f1, f2, f3); break;
-                            case 1: sh.sh2 = new Vector3(f1, f2, f3); break;
-                            case 2: sh.sh3 = new Vector3(f1, f2, f3); break;
-                            case 3: sh.sh4 = new Vector3(f1, f2, f3); break;
-                            case 4: sh.sh5 = new Vector3(f1, f2, f3); break;
-                            case 5: sh.sh6 = new Vector3(f1, f2, f3); break;
-                            case 6: sh.sh7 = new Vector3(f1, f2, f3); break;
-                            case 7: sh.sh8 = new Vector3(f1, f2, f3); break;
-                            case 8: sh.sh9 = new Vector3(f1, f2, f3); break;
-                            case 9: sh.shA = new Vector3(f1, f2, f3); break;
-                            case 10: sh.shB = new Vector3(f1, f2, f3); break;
-                            case 11: sh.shC = new Vector3(f1, f2, f3); break;
-                            case 12: sh.shD = new Vector3(f1, f2, f3); break;
-                            case 13: sh.shE = new Vector3(f1, f2, f3); break;
-                            case 14: sh.shF = new Vector3(f1, f2, f3); break;
-                        }
-                    }
-                    shs[i] = sh;*/
 
-                    int baseIdx = i * 48;
+                    /*int baseIdx = i * 48;
                     SHs sh = new SHs
                     {
                         dc0 = new Vector3(
@@ -220,28 +292,24 @@ namespace HierarchicalSplatting.Editor.Utils
                         }
                     }
 
-                    shs[i] = sh;
+                    shs[i] = sh;*/
                 }
-
-                //halfSHs.Dispose();    
-
-                Debug.Log($"CreateAsset::SH.Length: {shs.Length}");
 
                 rawSHData.Dispose();
 
                 fs.Read(buffer,0, 4);
                 int N = BitConverter.ToInt32(buffer, 0);
 
-                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfBox>(), Allocator.Persistent);
-                fs.Read(rawBoxData);
-                NativeArray<HalfBox> halfboxes = rawBoxData.Reinterpret<HalfBox>(1);
-
                 rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfNode>(), Allocator.Persistent);
                 fs.Read(rawNodeData);
                 NativeArray<HalfNode> halfnodes = rawNodeData.Reinterpret<HalfNode>(1);
 
-                boxes = new NativeArray<Box>(N, Allocator.Persistent);
-                nodes = new NativeArray<Node>(N, Allocator.Persistent);
+                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfBox>(), Allocator.Persistent);
+                fs.Read(rawBoxData);
+                NativeArray<HalfBox> halfboxes = rawBoxData.Reinterpret<HalfBox>(1);
+
+                boxes = new Box[N];
+                nodes = new Node[N];
 
                 for (int i = 0; i < N; i++) {
                     nodes[i] = new Node(halfnodes[i].dccc0,halfnodes[i].parent, halfnodes[i].start, halfnodes[i].dccc2,halfnodes[i].dccc3, halfnodes[i].start_children, halfnodes[i].dccc1);
@@ -256,7 +324,7 @@ namespace HierarchicalSplatting.Editor.Utils
 
                 if (debug)
                 {
-                    /*Debug.Log($"P: {P}");
+                    Debug.Log($"P: {P}");
 
                     float s1 = rawPosData.Length / (1024f * 1024f * 1024f);
                     float s2 = rawRotData.Length / (1024f * 1024f * 1024f);
@@ -282,7 +350,7 @@ namespace HierarchicalSplatting.Editor.Utils
 
                     Debug.Log($"Total Memory: {s1 + s2 + s3 + s4 + s5 + s6 + s7} GB");
 
-                    Debug.Log($"N: {N}");*/
+                    Debug.Log($"N: {N}");
                 }
             }
         }        
@@ -290,31 +358,31 @@ namespace HierarchicalSplatting.Editor.Utils
         
         public static int LoadHierarchy(
             string filename,  
-            out NativeArray<Vector3> pos,  
-            out NativeArray<SHs> shs,  
-            out NativeArray<float> alphas,  
-            out NativeArray<Vector3> scales,  
-            out NativeArray<Vector4> rot,  
-            out NativeArray<Node> nodes,  
-            out NativeArray<Box> boxes) 
+            out Vector3[] pos,  
+            out SHs[] shs,  
+            out float[] alphas,  
+            out Vector3[] scales,  
+            out Vector4[] rot,  
+            out Node[] nodes,  
+            out Box[] boxes) 
         {
             
             Load(filename, out pos, out shs, out alphas, out scales, out rot, out nodes, out boxes, false);
             
             int P = pos.Length;
 
-            LinearizeData(ref rot, ref scales, ref alphas);
+            //LinearizeData(ref rot, ref scales, ref alphas);
 
             return P;
         }
         
         public static int loadScaffold(
             string filename, 
-            out NativeArray<Vector3> pos, 
-            out NativeArray<SHs> shs, 
-            out NativeArray<float> alphas, 
-            out NativeArray<Vector3> scales, 
-            out NativeArray<Vector4> rot) 
+            out Vector3[] pos, 
+            out SHs[] shs, 
+            out float[] alphas, 
+            out Vector3[] scales, 
+            out Vector4[] rot) 
         {
             
             string txtfile = filename + "/pc_info.txt";
@@ -373,11 +441,11 @@ namespace HierarchicalSplatting.Editor.Utils
                 }
             }
 
-            pos = new NativeArray<Vector3>(count, Allocator.Persistent);
-            shs = new NativeArray<SHs>(count, Allocator.Persistent);
-            alphas = new NativeArray<float>(count, Allocator.Persistent);
-            scales = new NativeArray<Vector3>(count, Allocator.Persistent);
-            rot = new NativeArray<Vector4>(count, Allocator.Persistent);
+            pos = new Vector3[count];
+            shs = new SHs[count];
+            alphas = new float[count];
+            scales = new Vector3[count];
+            rot = new Vector4[count];
 
             for (int k = 0; k < count; k++)
             {

@@ -1,11 +1,11 @@
-#pragma kernel changeNodesOnce
-#pragma kernel putNodes
-#pragma kernel countRenderIndicesIndexed
-#pragma kernel putRenderIndicesIndexed
-#pragma kernel setStarts
-#pragma kernel computeTsIndexed
-#pragma kernel Flagged
-#pragma kernel InclusiveSum
+#pragma kernel changeNodesOnce                 //0
+#pragma kernel putNodes                        //1
+#pragma kernel countRenderIndicesIndexed       //2
+#pragma kernel putRenderIndicesIndexed         //3
+#pragma kernel setStarts                       //4
+#pragma kernel computeTsIndexed                //5
+#pragma kernel Flagged                         //6
+#pragma kernel InclusiveSum                    //7
 
 struct Node {
     int depth;
@@ -22,29 +22,29 @@ struct Box {
     float4 maxx;
 };
 
-RWStructuredBuffer<Node> nodes;
-StructuredBuffer<Box> boxes;
+RWStructuredBuffer<Node> nodes;                         // 0, 1, 2, 3, 4, 5
+StructuredBuffer<Box> boxes;                            // 0, 5
 
-RWStructuredBuffer<int> render_indices;
-RWStructuredBuffer<int> parent_indices;
-RWStructuredBuffer<int> nodes_of_render_indices;
-RWStructuredBuffer<int> splits;
-RWStructuredBuffer<int> node_indices;
-RWStructuredBuffer<int> new_node_indices;
-RWStructuredBuffer<int> nodes_to_expand;
-RWStructuredBuffer<float> interp_taus;
-RWStructuredBuffer<int> kids;
-RWStructuredBuffer<int> NdstI;
-RWStructuredBuffer<int> NsrcI;
-RWStructuredBuffer<int> NsrcC;
-RWStructuredBuffer<int> numI; //num_need_children
-RWStructuredBuffer<int> outN;  //newN and newR
+RWStructuredBuffer<int> render_indices;                 // 3
+RWStructuredBuffer<int> parent_indices;                 // 3  
+RWStructuredBuffer<int> nodes_of_render_indices;        // 3, 5
+RWStructuredBuffer<int> splits;                         // 0, 2
+RWStructuredBuffer<int> node_indices;                   // 0, 1
+RWStructuredBuffer<int> new_node_indices;               // 1, 2, 3
+RWStructuredBuffer<int> nodes_to_expand;                // 4, 6
+RWStructuredBuffer<float> interp_taus;                  // 5
+RWStructuredBuffer<int> kids;                           // 5
+RWStructuredBuffer<int> NdstI;                          // 0, 1
+RWStructuredBuffer<int> NsrcI;                          // 0
+RWStructuredBuffer<int> NsrcC;                          // 0, 1
+RWStructuredBuffer<int> numI; //num_need_children       // 6
+RWStructuredBuffer<int> outN;  //newN and newR          // 7
 
-float4 viewpoint; //campos
-float target_size;
-uint to_render_num;
-uint max_nodes; //num_active_nodes{_gpu}
-uint N;
+float4 viewpoint; //campos                              // 0, 5
+float target_size;                                      // 0, 5
+uint to_render_num;                                     // 5
+uint max_nodes; //num_active_nodes{_gpu}                // 0, 1
+uint N;                                                 // 6, 7
 
 bool inbox(Box box, float4 viewpoint) {
     return all(viewpoint >= box.minn) && all(viewpoint <= box.maxx);

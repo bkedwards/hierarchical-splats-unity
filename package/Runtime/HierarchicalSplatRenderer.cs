@@ -181,8 +181,11 @@ namespace HierarchicalSplatting.Runtime
         }*/
         void OnPreCullCamera(Camera cam)
         {
+            if (!hs.resourcesAreSetUp || !hs.HasValidAsset)
+                return;
+            frameCounter++;   
+            Debug.Log("(184) frame " + frameCounter);
             hs.CalcViewData(cam);
-            frameCounter++;
             cleanup |= frameCounter % 10 == 0;
             if (frameCounter == 1 || frameCounter % 2 == 0)
             {
@@ -236,12 +239,12 @@ namespace HierarchicalSplatting.Runtime
         int max_nodes; //GAUSS_MEMLIMIT
         int to_render_num;
         int num_need_children;
-        int num_active_nodes;
+        int num_active_nodes; //num_active_nodes_cpu
         int nodes_offset = 0;
         int gaussians_offset = 0;
         int skyboxoffset;
         Vector4 m_Viewpoint;
-        //Vector3 m_ZDirection;
+        Vector3 m_ZDirection;
 
         // Believe that these are necessary for rendering.
         Vector3[] pos_to_render;
@@ -255,7 +258,7 @@ namespace HierarchicalSplatting.Runtime
         Node[] nodes_to_render;
 
         int[] cuda2cpu;
-        int[] package_parent_starts;
+        int[] package_parent_starts; //package_parent_starts
         int[] need_children;
         int[] render_indices;
         int[] parent_indices;
@@ -374,9 +377,21 @@ namespace HierarchicalSplatting.Runtime
 
         void CreateResourcesForAsset()
         {
+
+            //Print(m_Asset.SkyPos, m_Asset.SkyRot, m_Asset.SkyScale, m_Asset.SkySH, m_Asset.SkyAlpha, default, default);
+
+            
             Debug.Log("CreateResourcesForAsset");
             if (!HasValidAsset)
-                return;
+                Debug.Log("Something wrong: " + HasValidAsset);
+                Debug.Log("asset: " + (m_Asset != null));
+                Debug.Log("Pos: " + (m_Asset.Pos != null));
+                Debug.Log("scales: " + (m_Asset.Scales != null));
+                Debug.Log("rots: " + (m_Asset.Rots != null));
+                Debug.Log("alphas: " + (m_Asset.Alphas != null));
+                Debug.Log("shs: " + (m_Asset.SHs != null));
+                Debug.Log("nodes: " + (m_Asset.Nodes != null));
+                Debug.Log("boxes: " + (m_Asset.Boxes != null));
 
             //Calculate GAUSS_MEMLIMIT and ALLGAUSS
             long budget = 16000L;
@@ -418,10 +433,12 @@ namespace HierarchicalSplatting.Runtime
             node_indices[0] = 0;
             num_active_nodes = 1;
             max_nodes = GAUSS_MEMLIMIT;
-            AddNodePackage(new int[] {0}, new int[] {-1});
+
             InitGraphicsBuffers();
             SetGraphicsBuffers();
-            
+            AddNodePackage(new int[] {0}, new int[] {-1});
+
+
             /*m_GpuPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.posData.dataSize / 4), 4) { name = "HierarchicalPosData" };
             m_GpuPosData.SetData(asset.posData.GetData<uint>());
             m_GpuOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.otherData.dataSize / 4), 4) { name = "HierarchicalOtherData" };
@@ -468,8 +485,68 @@ namespace HierarchicalSplatting.Runtime
             //InitSortBuffers(splatCount);
         }
 
+        void Print(
+            Vector3[] eigenpos, 
+            Vector4[] eigenrot, 
+            Vector3[] eigenscale, 
+            SHs [] shs, 
+            float [] alphas, 
+            Node [] nodes, 
+            Box [] boxes)
+        {
+            string ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenpos[i].x.ToString() + ", " + eigenpos[i].y.ToString() + ", " + eigenpos[i].z.ToString() + ") ";
+            }
+            Debug.Log("Pos: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenscale[i].x.ToString() + ", " + eigenscale[i].y.ToString() + ", " + eigenscale[i].z.ToString() + ") ";
+            }
+            Debug.Log("Scale: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenrot[i].x.ToString() + ", " + eigenrot[i].y.ToString() + ", " + eigenrot[i].z.ToString() + ", " + eigenrot[i].w.ToString() + ") ";
+            }
+            Debug.Log("Rot: " + ans);
+            ans = "";
+            for (int i = 0; i<10; i++)
+            {
+                ans += alphas[i] + " ";
+            }
+            Debug.Log("alpha: " + ans);
+            ans = "\n";
+            for (int i = 0; i < 5; i++) 
+            {
+                ans += "\t[" + i.ToString() + "]: " + shs[i].dc0.ToString() + " " + shs[i].sh1.ToString() + " " + shs[i].sh2.ToString() + "\n";
+            }
+            Debug.Log("shs: " +  ans);
+            if (nodes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + nodes[i].depth.ToString() + " " + nodes[i].parent.ToString() + " " + nodes[i].start.ToString() + " " + nodes[i].count_leafs.ToString() + " " + nodes[i].count_merged.ToString() + " "  + nodes[i].start_children.ToString() + " " + nodes[i].count_children.ToString() + " \n";
+
+                }
+                Debug.Log("nodes: " + ans);
+            }
+            if (boxes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + boxes[i].minn.ToString() + " " + boxes[i].maxx.ToString() + "\n";
+                }
+                Debug.Log("boxes: " + ans);
+            }
+        }
+
         void InitGraphicsBuffers() 
         {
+            Debug.Log("Init Graphics Buffers");
+            Print(m_Asset.Pos, m_Asset.Rots, m_Asset.Scales, m_Asset.SHs, m_Asset.Alphas , m_Asset.Nodes, m_Asset.Boxes);
             nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int) * 7);
             nodesBuff.SetData(asset.Nodes);
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(float) * 8);
@@ -499,24 +576,59 @@ namespace HierarchicalSplatting.Runtime
         void SetGraphicsBuffers()
         {
             m_CSHierarchicalCut.SetBuffer(0, "nodes", nodesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "boxes", boxesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "render_indices", renderIndicesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "parent_indices", parentIndicesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "nodes_of_render_indices", nodesOfRenderIndicesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "splits", splitsBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "node_indices", nodeIndicesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "nodes_to_expand", nodesToExpandBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "interp_taus", interpTausBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "kids", kidsBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "NdstI", NdstIBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "NsrcI", NsrcIBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "NsrcC", NsrcCBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "new_node_indices", newNodeIndicesBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "numI", numIBuff);
-            m_CSHierarchicalCut.SetBuffer(0, "outN", outNBuff);
+            m_CSHierarchicalCut.SetBuffer(1, "nodes", nodesBuff);
+            m_CSHierarchicalCut.SetBuffer(2, "nodes", nodesBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "nodes", nodesBuff);
+            m_CSHierarchicalCut.SetBuffer(4, "nodes", nodesBuff);
+            m_CSHierarchicalCut.SetBuffer(5, "nodes", nodesBuff);
 
-            m_CSHierarchicalCut.SetFloat("target_size", sizeLimit);
+            m_CSHierarchicalCut.SetBuffer(0, "boxes", boxesBuff);
+            m_CSHierarchicalCut.SetBuffer(5, "boxes", boxesBuff);
+
+            m_CSHierarchicalCut.SetBuffer(3, "render_indices", renderIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "parent_indices", parentIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "nodes_of_render_indices", nodesOfRenderIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(5, "nodes_of_render_indices", nodesOfRenderIndicesBuff);
+
+            m_CSHierarchicalCut.SetBuffer(0, "splits", splitsBuff);
+            m_CSHierarchicalCut.SetBuffer(2, "splits", splitsBuff);
+
+            m_CSHierarchicalCut.SetBuffer(0, "node_indices", nodeIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(1, "node_indices", nodeIndicesBuff);
+
+            m_CSHierarchicalCut.SetBuffer(1, "new_node_indices", newNodeIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(2, "new_node_indices", newNodeIndicesBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "new_node_indices", newNodeIndicesBuff);
+
+            m_CSHierarchicalCut.SetBuffer(4, "nodes_to_expand", nodesToExpandBuff);
+            m_CSHierarchicalCut.SetBuffer(6, "nodes_to_expand", nodesToExpandBuff);
+
+            m_CSHierarchicalCut.SetBuffer(5, "interp_taus", interpTausBuff);
+            m_CSHierarchicalCut.SetBuffer(5, "kids", kidsBuff);
+
+            m_CSHierarchicalCut.SetBuffer(0, "NdstI", NdstIBuff);
+            m_CSHierarchicalCut.SetBuffer(1, "NdstI", NdstIBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "NdstI", NdstIBuff);
+            m_CSHierarchicalCut.SetBuffer(6, "NdstI", NdstIBuff);
+            m_CSHierarchicalCut.SetBuffer(7, "NdstI", NdstIBuff);
+
+            m_CSHierarchicalCut.SetBuffer(0, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(1, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(2, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(3, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(4, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(6, "NsrcI", NsrcIBuff);
+            m_CSHierarchicalCut.SetBuffer(7, "NsrcI", NsrcIBuff);
+
+            m_CSHierarchicalCut.SetBuffer(0, "NsrcC", NsrcCBuff);
+            m_CSHierarchicalCut.SetBuffer(6, "NsrcC", NsrcCBuff);
+            m_CSHierarchicalCut.SetBuffer(7, "NsrcC", NsrcCBuff);
+
+            m_CSHierarchicalCut.SetBuffer(6, "numI", numIBuff);
+            m_CSHierarchicalCut.SetBuffer(7, "outN", outNBuff);
+
             m_CSHierarchicalCut.SetVector("viewpoint",m_Viewpoint);
+            m_CSHierarchicalCut.SetFloat("target_size", sizeLimit);
             m_CSHierarchicalCut.SetInt("max_nodes", GAUSS_MEMLIMIT);
         }
 
@@ -578,7 +690,14 @@ namespace HierarchicalSplatting.Runtime
             }
             gaussians_offset += gaussian_copy_count;
             nodes_offset += node_copy_count;
-
+            Debug.Log("Cuda Gaussians Offset" + gaussians_offset);
+            Debug.Log("Nodes Offset: " + nodes_offset);
+            string ans = "";
+            for (int i = 0; i< 20; i++)
+            {
+                ans += cuda2cpu[i].ToString();
+            }
+            Debug.Log("Cuda2Cpu: " + ans);
             return true;
 
         }
@@ -666,7 +785,9 @@ namespace HierarchicalSplatting.Runtime
             Debug.Log("(652) num_need_children: " + num_need_children.ToString());
             outNBuff.GetData(buffer);
             new_node_count = buffer[0];
-
+            //need_expansion
+            //new_N
+            //new_R
             Debug.Log("(656) new_node_count: " + new_node_count.ToString());
 
             if (new_node_count > max_nodes)
@@ -780,7 +901,7 @@ namespace HierarchicalSplatting.Runtime
                 m_SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
         }*/
 
-        bool resourcesAreSetUp => m_ShaderSplats != null 
+        public bool resourcesAreSetUp => m_ShaderSplats != null 
             && m_ShaderComposite != null 
             && m_CSSplatUtilities != null 
             && m_CSHierarchicalCut != null
@@ -819,8 +940,7 @@ namespace HierarchicalSplatting.Runtime
 
             EnsureMaterials();
             EnsureSorterAndRegister();
-
-            CreateResourcesForAsset();
+            //CreateResourcesForAsset();
         }
 
         /*void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel)
@@ -981,8 +1101,11 @@ namespace HierarchicalSplatting.Runtime
             Vector4 screenPar = new Vector4(eyeW != 0 ? eyeW : screenW, eyeH != 0 ? eyeH : screenH, 0, 0);
             Vector4 camPos = cam.transform.position;
 
-            m_Viewpoint = camPos;
-            //m_ZDirection = cam.transform.forward;
+            m_Viewpoint = new Vector4(3.27458f, -48.7878f, 3.3452f);
+
+            m_ZDirection = new Vector3(0.16184f, 0.818862f, -0.550702f);
+
+            Debug.Log("Old Camera Pos: " + camPos);
         }
 
         /*internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
@@ -1035,7 +1158,7 @@ namespace HierarchicalSplatting.Runtime
                 m_PrevHash = curHash;
                 if (resourcesAreSetUp)
                 {
-                    Debug.Log("InsideUpdate()");
+                    Debug.Log("Inside Update()");
                     DisposeResourcesForAsset();
                     CreateResourcesForAsset();
                 }

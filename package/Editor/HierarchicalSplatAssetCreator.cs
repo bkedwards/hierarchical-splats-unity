@@ -144,42 +144,35 @@ namespace HierarchicalSplatting.Editor
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Reading merged hierarchy file", 0.0f);
 
-            NativeArray<Vector3> eigenpos;
-            NativeArray<Vector3> eigenscale; 
-            NativeArray<Vector4> eigenrot;
-            NativeArray<SHs> shs;
-            NativeArray<float> alphas;
-            NativeArray<Node> nodes;
-            NativeArray<Box> boxes;
+            Vector3 [] eigenpos;
+            Vector3 [] eigenscale;
+            Vector4 [] eigenrot;
+            SHs [] shs;
+            float [] alphas;
+            Node [] nodes;
+            Box [] boxes;
 
             int P1 = HierarchyFileReader.LoadHierarchy(m_InputModelFile, out eigenpos, out shs,  out alphas,  out eigenscale,  out eigenrot, out nodes, out boxes);
+
+            Print(eigenpos, eigenrot, eigenscale, shs, alphas , nodes, boxes);
 
             if (P1 == 0)
             {
                 EditorUtility.ClearProgressBar();
-                DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
+                //DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
                 return;
             }
             Debug.Log($"CreateAsset::SH.Length: {shs.Length}");
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Reading scaffold files", 0.5f);
 
-            NativeArray<Vector3> skyboxpos;
-            NativeArray<Vector4> skyboxrot;
-            NativeArray<SHs> skyboxsh;
-            NativeArray<float> skyboxalpha;
-            NativeArray<Vector3> skyboxscale;
+            Vector3 [] skyboxpos;
+            Vector3 [] skyboxscale;
+            Vector4 [] skyboxrot;
+            SHs [] skyboxsh;
+            float [] skyboxalpha;
 
             int skyboxnum = HierarchyFileReader.loadScaffold(m_InputScaffoldFile, out skyboxpos, out skyboxsh, out skyboxalpha, out skyboxscale, out skyboxrot);
-
-            long totalMemory = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
-
-            // Convert bytes to gigabytes (GB)
-            float totalMemoryInGB = totalMemory / (1024f * 1024f * 1024f);
-
-            // Print memory usage
-            Debug.Log($"Total Memory Used (1): {totalMemoryInGB:F2} GB");
-
 
 
             string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputModelFile));
@@ -189,55 +182,19 @@ namespace HierarchicalSplatting.Editor
             HierarchicalSplatAsset asset = ScriptableObject.CreateInstance<HierarchicalSplatAsset>();
             asset.Initialize(P1, skyboxnum);
             asset.name = baseName;
+            EditorUtility.DisplayProgressBar(kProgressTitle, "Creating data hash", 0.75f);
 
             var dataHash = new Hash128((uint)asset.splatCount, (uint)asset.formatVersion, 0, 0);
 
-            bool batchSHFiles = false;    
-
-            /*string pathPos = Path.Combine(m_OutputFolder, $"{baseName}_pos.bytes");
-            string pathOther = Path.Combine(m_OutputFolder, $"{baseName}_oth.bytes");
-            string pathCol = Path.Combine(m_OutputFolder, $"{baseName}_col.bytes");
-            string pathSh = Path.Combine(m_OutputFolder, baseName);
-            string pathNod = Path.Combine(m_OutputFolder, $"{baseName}_nod.bytes");
-            string pathBox = Path.Combine(m_OutputFolder, $"{baseName}_box.bytes");
-
-            CreatePositionsData(eigenpos, pathPos, ref dataHash);
-            CreateOtherData(eigenrot, eigenscale, pathOther, ref dataHash);
-            CreateColorData(shs, alphas, pathCol, ref dataHash);
-            string[] shPaths = CreateSHData(shs, pathSh, ref dataHash, ref batchSHFiles);
-            CreateBoxData(boxes, pathBox, ref dataHash);
-            CreateNodeData(nodes, pathNod, ref dataHash);*/
             asset.SetDataHash(dataHash);
 
-            EditorUtility.DisplayProgressBar(kProgressTitle, "Disposal of Objects", 0.8f);
-
-            //DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
-            //DisposeSkybox(ref skyboxpos, ref skyboxrot, ref skyboxscale, ref skyboxsh, ref skyboxalpha);
-
-            totalMemory = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
-
-            // Convert bytes to gigabytes (GB)
-            totalMemoryInGB = totalMemory / (1024f * 1024f * 1024f);
-
-            // Print memory usage
-            Debug.Log($"Total Memory Used (2): {totalMemoryInGB:F2} GB");
-
             EditorUtility.DisplayProgressBar(kProgressTitle, "Initial texture import", 0.85f);
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
+            //AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Setup data onto asset", 0.95f);
 
-            /*TextAsset posAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathPos);
-            TextAsset otherAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathOther);
-            TextAsset colAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathCol);
-            TextAsset[] shAssets = GetSHTextAssets(ref shPaths);
-            TextAsset boxAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathBox);
-            TextAsset nodAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(pathNod);
-
-            asset.SetAssetFiles(posAsset, otherAsset, colAsset, shAssets, boxAsset, nodAsset);*/
-
-            asset.SetHierarchyData(eigenpos, eigenscale, eigenrot, alphas, shs, boxes, nodes);
-            asset.SetScaffoldData(skyboxpos, skyboxscale, skyboxrot, skyboxalpha, skyboxsh);
+            asset.SetHierarchyData(ref eigenpos, ref eigenscale, ref eigenrot, ref alphas, ref shs, ref boxes, ref nodes);
+            asset.SetScaffoldData(ref skyboxpos, ref skyboxscale, ref skyboxrot, ref skyboxalpha, ref skyboxsh);
 
             var assetPath = Path.Combine(m_OutputFolder, $"{baseName}.asset");
             var savedAsset = CreateOrReplaceAsset(asset, assetPath);
@@ -248,59 +205,6 @@ namespace HierarchicalSplatting.Editor
             EditorUtility.ClearProgressBar();
 
             Selection.activeObject = savedAsset;
-            
-            totalMemory = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
-
-            // Convert bytes to gigabytes (GB)
-            totalMemoryInGB = totalMemory / (1024f * 1024f * 1024f);
-
-            // Print memory usage
-            Debug.Log($"Total Memory Used (2): {totalMemoryInGB:F2} GB");
-        }
-
-        TextAsset[] GetSHTextAssets(ref string[] shPaths) 
-        {
-            if (shPaths == null || shPaths.Length == 0)
-                return null;
-
-            TextAsset[] texts = new TextAsset[shPaths.Length];
-            for (int i = 0; i < texts.Length; i++)
-            {
-                texts[i] = AssetDatabase.LoadAssetAtPath<TextAsset>(shPaths[i]);
-            }
-            return texts;
-        }
-
-        void DisposeHierarchy(
-            ref NativeArray<Vector3> eigenpos, 
-            ref NativeArray<Vector4> eigenrot, 
-            ref NativeArray<Vector3> eigenscale, 
-            ref NativeArray<SHs> shs, 
-            ref NativeArray<float> alphas, 
-            ref NativeArray<Node> nodes, 
-            ref NativeArray<Box> boxes)
-        {
-            eigenpos.Dispose();
-            eigenrot.Dispose();
-            eigenscale.Dispose();
-            shs.Dispose();
-            alphas.Dispose();
-            nodes.Dispose();
-            boxes.Dispose();
-        }
-
-        void DisposeSkybox(
-            ref NativeArray<Vector3> skyboxpos, 
-            ref NativeArray<Vector4> skyboxrot, 
-            ref NativeArray<Vector3> skyboxscale, 
-            ref NativeArray<SHs> skyboxsh, 
-            ref NativeArray<float> skyboxalpha) 
-        {
-            skyboxpos.Dispose();
-            skyboxrot.Dispose();
-            skyboxscale.Dispose();
-            skyboxsh.Dispose();
-            skyboxalpha.Dispose();
         }
 
         [BurstCompile]
@@ -385,6 +289,65 @@ namespace HierarchicalSplatting.Editor
 
             data.Dispose();
         }
+
+        void Print(
+            Vector3[] eigenpos, 
+            Vector4[] eigenrot, 
+            Vector3[] eigenscale, 
+            SHs [] shs, 
+            float [] alphas, 
+            Node [] nodes, 
+            Box [] boxes)
+        {
+            string ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenpos[i].x.ToString() + ", " + eigenpos[i].y.ToString() + ", " + eigenpos[i].z.ToString() + ") ";
+            }
+            Debug.Log("Pos: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenscale[i].x.ToString() + ", " + eigenscale[i].y.ToString() + ", " + eigenscale[i].z.ToString() + ") ";
+            }
+            Debug.Log("Scale: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenrot[i].x.ToString() + ", " + eigenrot[i].y.ToString() + ", " + eigenrot[i].z.ToString() + ", " + eigenrot[i].w.ToString() + ") ";
+            }
+            Debug.Log("Rot: " + ans);
+            ans = "";
+            for (int i = 0; i<10; i++)
+            {
+                ans += alphas[i] + " ";
+            }
+            Debug.Log("alpha: " + ans);
+            ans = "\n";
+            for (int i = 0; i < 5; i++) 
+            {
+                ans += "\t[" + i.ToString() + "]: " + shs[i].dc0.ToString() + " " + shs[i].sh1.ToString() + " " + shs[i].sh2.ToString() + "\n";
+            }
+            Debug.Log("shs: " +  ans);
+            if (nodes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + nodes[i].depth.ToString() + " " + nodes[i].parent.ToString() + " " + nodes[i].start.ToString() + " " + nodes[i].count_leafs.ToString() + " " + nodes[i].count_merged.ToString() + " "  + nodes[i].start_children.ToString() + " " + nodes[i].count_children.ToString() + " \n";
+
+                }
+                Debug.Log("nodes: " + ans);
+            }
+            if (boxes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + boxes[i].minn.ToString() + " " + boxes[i].maxx.ToString() + "\n";
+                }
+                Debug.Log("boxes: " + ans);
+            }
+        }
+
 
         static int SplatIndexToTextureIndex(uint idx)
         {

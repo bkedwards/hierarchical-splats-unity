@@ -13,59 +13,72 @@ namespace HierarchicalSplatting.Editor.Utils
     public static class HierarchicalFileReadingUtils {
 
 
-        public static float HalfToFloat(short half)
+        public static float HalfToFloat(short h)
         {
-            int sign = (half >> 15) & 0x1;
-            int exponent = (half >> 10) & 0x1F;
-            int mantissa = half & 0x3FF;
+            int i = ((h&0x8000)<<16) | (((h&0x7c00)+0x1C000)<<13) | ((h&0x03FF)<<13);
+            float f;
 
-            if (exponent == 0)
+
+
+            //int i = mantissatable(offsettable(h>>10) + (h&0x3ff)) + exponenttable(h>>10);
+            unsafe
             {
-                if (mantissa == 0)
-                    return sign == 0 ? 0f : -0f; 
-                else
-                {
-                    return sign == 0 ? (mantissa / 1024f) : -(mantissa / 1024f);
-                }
+                int* iRef = &i;
+                f = *((float*)iRef);
             }
-            else if (exponent == 31)
-            {
-                if (mantissa == 0)
-                    return sign == 0 ? float.PositiveInfinity : float.NegativeInfinity;
-                else
-                    return float.NaN; // Handle NaN
-            }
-            // Normalized value
-            float normalizedValue = (mantissa / 1024f) * (1 << (exponent - 15));
-            return sign == 0 ? normalizedValue : -normalizedValue;
+            return f;
         }
-        /*public static void ReadRichPointArray(BinaryReader reader, NativeArray<RichPoint> array, int count) {
-            RichPoint point = new RichPoint();
-            for (int i = 0; i<count; i++) {
-                float[] pos = new float[3];
-                float[] n = new float[3];
-                float[] shs = new float[12];
-                float alpha;
-                float[] scale = new float[3];
-                float[] rot = new float[4];
-                for (int j = 0; j<3; j++) {
-                    pos[j] = reader.ReadSingle();
-                }
-                for (int j = 0; j<3; j++) {
-                    n[j] = reader.ReadSingle();
-                }
-                for (int j = 0; j<12; j++) {
-                    shs[j] = reader.ReadSingle();
-                }
-                alpha = reader.ReadSingle();
-                for (int j = 0; j<3; j++) {
-                    scale[j] = reader.ReadSingle();
-                }
-                for (int j = 0; j<4; j++) {
-                    rot[j] = reader.ReadSingle();
-                }
-                array[i] = new RichPoint(pos, n, shs, alpha, scale, rot, Allocator.Temp);
+
+        /*static int mantissatable(int i)
+        {
+            if (i==0)
+                return 0;
+            else if (i >= 1 && i <= 2023)
+                return convertmantissa(i);
+            else
+                return 0x38000000 + ((i-1024)<<13);
+        }
+
+        static uint exponenttable(int i) 
+        {
+            if (i==0)
+                return 0;
+            else if (i==32)
+                return 0x80000000;
+            else if (i>=1 && i <=30)
+                return i<<23;
+            else if (i>=33 && i<=62)
+                return 0x80000000 + (i-32)<<23;
+            else if (i==31)
+                return 0x47800000;
+            else if (i==63)
+                return 0xC7800000;
+            return 0;
+        }
+
+        static uint offsettable(int i)
+        {
+            if (i==0)
+                return 0;
+            if (i==32)
+                return 32;
+            else
+                return 1024;
+        }
+
+
+        static uint convertmantissa(int i)
+        {
+            uint m = i << 13; // Zero pad mantissa bits
+            uint e = 0; // Zero exponent
+            while ((m & 0x00800000) == 0) // While not normalized
+            {
+                e -= 0x00800000; // Decrement exponent (1 << 23)
+                m <<= 1; // Shift mantissa
             }
+            m &= ~0x00800000; // Clear leading 1 bit
+            e += 0x38800000; // Adjust bias ((127-14) << 23)
+            return m | e; // Return combined number
         }*/
-    } 
+    }
 }

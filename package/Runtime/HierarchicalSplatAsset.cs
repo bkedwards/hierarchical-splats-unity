@@ -28,19 +28,31 @@ namespace HierarchicalSplatting.Runtime
         public int scaffoldCount => m_ScaffoldCount;
         public Hash128 dataHash => m_DataHash;
 
-        public NativeArray<Vector3> Pos;
-        public NativeArray<Vector3> Scales;
-        public NativeArray<Vector4> Rots;
-        public NativeArray<float> Alphas;
-        public NativeArray<SHs> SHs;
-        public NativeArray<Box> Boxes;
-        public NativeArray<Node> Nodes;
-
-        public NativeArray<Vector3> SkyPos;
-        public NativeArray<Vector3> SkyScale;
-        public NativeArray<Vector4> SkyRot;
-        public NativeArray<float> SkyAlpha;
-        public NativeArray<SHs> SkySH;
+        long cachedMemorySize = -1;
+        [HideInInspector]
+        public Vector3[] Pos;
+        [HideInInspector]
+        public Vector3[] Scales;
+        [HideInInspector]
+        public Vector4[] Rots;
+        [HideInInspector]
+        public float[] Alphas;
+        [HideInInspector]
+        public SHs[] SHs;
+        [HideInInspector]
+        public Box[] Boxes;
+        [HideInInspector]
+        public Node[] Nodes;
+        [HideInInspector]
+        public Vector3[] SkyPos;
+        [HideInInspector]
+        public Vector3[] SkyScale;
+        [HideInInspector]
+        public Vector4[] SkyRot;
+        [HideInInspector]
+        public float[] SkyAlpha;
+        [HideInInspector]
+        public SHs[] SkySH;
 
 
 
@@ -58,13 +70,13 @@ namespace HierarchicalSplatting.Runtime
         }
 
         public void SetHierarchyData(
-            NativeArray<Vector3> Pos,
-            NativeArray<Vector3> Scales,
-            NativeArray<Vector4> Rots,
-            NativeArray<float> Alphas,
-            NativeArray<SHs> SHs,
-            NativeArray<Box> Boxes,
-            NativeArray<Node> Nodes)
+            ref Vector3[] Pos,
+            ref Vector3[] Scales,
+            ref Vector4[] Rots,
+            ref float[] Alphas,
+            ref SHs[] SHs,
+            ref Box[] Boxes,
+            ref Node[] Nodes)
         {
             this.Pos = Pos;
             this.Scales = Scales;
@@ -73,14 +85,16 @@ namespace HierarchicalSplatting.Runtime
             this.SHs = SHs;
             this.Boxes = Boxes;
             this.Nodes = Nodes;
+
+            Print(this.Pos, this.Rots, this.Scales, this.SHs, this.Alphas, this.Nodes, this.Boxes);
         }
 
         public void SetScaffoldData(
-            NativeArray<Vector3> SkyPos,
-            NativeArray<Vector3> SkyScale,
-            NativeArray<Vector4> SkyRot,
-            NativeArray<float> SkyAlpha,
-            NativeArray<SHs> SkySH)
+            ref Vector3[] SkyPos,
+            ref Vector3[] SkyScale,
+            ref Vector4[] SkyRot,
+            ref float [] SkyAlpha,
+            ref SHs[] SkySH)
         {
             this.SkyPos = SkyPos;
             this.SkyScale = SkyScale;
@@ -97,6 +111,82 @@ namespace HierarchicalSplatting.Runtime
             int blockHeight = 16;
             height = (height + blockHeight - 1) / blockHeight * blockHeight;
             return (width, height);
+        }
+
+        void Print(
+            Vector3[] eigenpos, 
+            Vector4[] eigenrot, 
+            Vector3[] eigenscale, 
+            SHs [] shs, 
+            float [] alphas, 
+            Node [] nodes, 
+            Box [] boxes)
+        {
+            string ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenpos[i].x.ToString() + ", " + eigenpos[i].y.ToString() + ", " + eigenpos[i].z.ToString() + ") ";
+            }
+            Debug.Log("Pos: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenscale[i].x.ToString() + ", " + eigenscale[i].y.ToString() + ", " + eigenscale[i].z.ToString() + ") ";
+            }
+            Debug.Log("Scale: " + ans);
+            ans = "";
+            for (int i = 0; i<5; i++)
+            {
+                ans += "(" + eigenrot[i].x.ToString() + ", " + eigenrot[i].y.ToString() + ", " + eigenrot[i].z.ToString() + ", " + eigenrot[i].w.ToString() + ") ";
+            }
+            Debug.Log("Rot: " + ans);
+            ans = "";
+            for (int i = 0; i<10; i++)
+            {
+                ans += alphas[i] + " ";
+            }
+            Debug.Log("alpha: " + ans);
+            ans = "\n";
+            for (int i = 0; i < 5; i++) 
+            {
+                ans += "\t[" + i.ToString() + "]: " + shs[i].dc0.ToString() + " " + shs[i].sh1.ToString() + " " + shs[i].sh2.ToString() + "\n";
+            }
+            Debug.Log("shs: " +  ans);
+            if (nodes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + nodes[i].depth.ToString() + " " + nodes[i].parent.ToString() + " " + nodes[i].start.ToString() + " " + nodes[i].count_leafs.ToString() + " " + nodes[i].count_merged.ToString() + " "  + nodes[i].start_children.ToString() + " " + nodes[i].count_children.ToString() + " \n";
+
+                }
+                Debug.Log("nodes: " + ans);
+            }
+            if (boxes != default)
+            {
+                ans = "";
+                for (int i = 0; i < 5; i++ ) {
+                    ans += "\t[" + i.ToString() + "]: " + boxes[i].minn.ToString() + " " + boxes[i].maxx.ToString() + "\n";
+                }
+                Debug.Log("boxes: " + ans);
+            }
+        }
+
+        public long CalculateMemorySize()
+        {
+            if (cachedMemorySize == -1) // Only calculate if not cached
+            {
+                long sizePos = splatCount * 3 * sizeof(float);
+                long sizeSHs = splatCount * 48 * sizeof(float);
+                long sizeRots = splatCount * 4 * sizeof(float);
+                long sizeScales = splatCount * 3 * sizeof(float);
+                long sizeAlphas = splatCount * sizeof(float);
+                long sizeNodes = splatCount * 7 * sizeof(int);
+                long sizeBoxes = splatCount * 8 * sizeof(float);
+
+                cachedMemorySize = sizePos + sizeSHs + sizeRots + sizeScales + sizeAlphas + sizeNodes + sizeBoxes;
+            }
+
+            return cachedMemorySize;
         }
     }
 }

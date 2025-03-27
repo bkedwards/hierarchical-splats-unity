@@ -25,43 +25,26 @@ namespace HierarchicalSplatting.Editor
         static void SingleAssetGUI(HierarchicalSplatAsset hs)
         {
             var splatCount = hs.splatCount;
-            EditorGUILayout.TextField("Splats", splatCount.ToString("N0"));
-            var prevBackColor = GUI.backgroundColor;
-            if (hs.formatVersion != HierarchicalSplatAsset.kCurrentVersion)
-                GUI.backgroundColor *= Color.red;
-            EditorGUILayout.IntField("Version", hs.formatVersion);
-            GUI.backgroundColor = prevBackColor;
+            EditorGUILayout.TextField("Splats", splatCount.ToString());
 
-            long sizePos = hs.Pos.Length * 3 * sizeof(float);
-            long sizeSHs = hs.SHs.Length * 48 * sizeof(float);
-            long sizeRots = hs.Rots.Length * 4 * sizeof(float);
-            long sizeScales = hs.Scales.Length * 3 * sizeof(float);
-            long sizeAlphas = hs.Alphas.Length * sizeof(float);
-            long sizeNodes = hs.Nodes.Length * 7 * sizeof(int);
-            long sizeBoxes = hs.Boxes.Length * 8 * sizeof(float);
-
-            long totalSize = sizePos + sizeSHs + sizeRots + sizeScales + sizeAlphas + sizeNodes + sizeBoxes;
-
-            string formattedSizePos = EditorUtility.FormatBytes(sizePos);
-            string formattedSizeRots = EditorUtility.FormatBytes(sizeRots);
-            string formattedSizeScales = EditorUtility.FormatBytes(sizeScales);
-            string formattedSizeAlphas = EditorUtility.FormatBytes(sizeAlphas);
-            string formattedSizeSHs = EditorUtility.FormatBytes(sizeSHs);
-            string formattedSizeNodes = EditorUtility.FormatBytes(sizeNodes);
-            string formattedSizeBoxes = EditorUtility.FormatBytes(sizeBoxes);
+            // Get the cached memory size from the asset
+            long totalSize = hs.CalculateMemorySize();
             string formattedTotalSize = EditorUtility.FormatBytes(totalSize);
 
             EditorGUILayout.LabelField("Memory", formattedTotalSize);
+
+            // Display the memory breakdown
             EditorGUI.indentLevel++;
-            EditorGUILayout.LabelField("Positions", formattedSizePos);
-            EditorGUILayout.LabelField("Scales", formattedSizeScales);
-            EditorGUILayout.LabelField("Rotations", formattedSizeRots);
-            EditorGUILayout.LabelField("Opacities", formattedSizeAlphas);
-            EditorGUILayout.LabelField("SHs", formattedSizeSHs);
-            EditorGUILayout.LabelField("Nodes", formattedSizeNodes);
-            EditorGUILayout.LabelField("Boxes", formattedSizeBoxes);
+            EditorGUILayout.LabelField("Positions", EditorUtility.FormatBytes(splatCount * 3 * sizeof(float)));
+            EditorGUILayout.LabelField("Scales", EditorUtility.FormatBytes(splatCount * 3 * sizeof(float)));
+            EditorGUILayout.LabelField("Rotations", EditorUtility.FormatBytes(splatCount * 4 * sizeof(float)));
+            EditorGUILayout.LabelField("Opacities", EditorUtility.FormatBytes(splatCount * sizeof(float)));
+            EditorGUILayout.LabelField("SHs", EditorUtility.FormatBytes(splatCount * 48 * sizeof(float)));
+            EditorGUILayout.LabelField("Nodes", EditorUtility.FormatBytes(splatCount * 7 * sizeof(int)));
+            EditorGUILayout.LabelField("Boxes", EditorUtility.FormatBytes(splatCount * 8 * sizeof(float)));
             EditorGUI.indentLevel--;
 
+            // Display data hash (optional)
             EditorGUILayout.TextField("Data Hash", hs.dataHash.ToString());
         }
     }
