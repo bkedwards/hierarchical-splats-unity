@@ -7,6 +7,8 @@
 #pragma kernel Flagged                         //6
 #pragma kernel InclusiveSum                    //7
 
+#define FLOAT_MAX 3.402823e+38
+
 struct Node {
     int depth;
     int parent;
@@ -47,17 +49,32 @@ uint max_nodes; //num_active_nodes{_gpu}                // 0, 1
 uint N;                                                 // 6, 7
 
 bool inbox(Box box, float4 viewpoint) {
-    return all(viewpoint >= box.minn) && all(viewpoint <= box.maxx);
+    //return all(viewpoint >= box.minn) && all(viewpoint <= box.maxx);
+	bool inside = true;
+	for (int i = 0; i < 3; i++)
+	{
+		inside = inside && (viewpoint.xyz[i] >= box.minn.xyz[i] && viewpoint.xyz[i] <= box.maxx.xyz[i]);
+	}
+	return inside;
 }
 
 float pointboxdist(Box box, float4 viewpoint) {
-    float4 closest = clamp(viewpoint, box.minn, box.maxx);
-    return length(viewpoint - closest);
+    /*float4 closest = clamp(viewpoint, box.minn, box.maxx);
+    return length(viewpoint - closest);*/
+    float3 closest = float3(
+        max(box.minn.x, min(box.maxx.x, viewpoint.x)),
+        max(box.minn.y, min(box.maxx.y, viewpoint.y)),
+        max(box.minn.z, min(box.maxx.z, viewpoint.z))
+    );
+
+    float3 diff = viewpoint.xyz - closest;
+    return sqrt(dot(diff, diff));
 }
 
 float computeSizeGPU(Box box, float4 viewpoint) 
 {
-    if (inbox(box, viewpoint)) return 1e30;  // FLT_MAX
+    if (inbox(box, viewpoint)) 
+        return FLOAT_MAX;  // FLT_MAX
     float min_dist = pointboxdist(box, viewpoint);
     return box.minn[3] / min_dist;
 }
