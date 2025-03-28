@@ -428,8 +428,8 @@ namespace HierarchicalSplatting.Runtime
             rots_to_render = new Vector4 [ALLGAUSS];
             alphas_to_render = new float[ALLGAUSS];
             shs_to_render = new SHs [ALLGAUSS];
-            boxes_to_render = new Box [ALLGAUSS];
-            nodes_to_render = new Node [ALLGAUSS];
+            boxes_to_render = new Box [GAUSS_MEMLIMIT];
+            nodes_to_render = new Node [GAUSS_MEMLIMIT];
 
             other_nodes = new Node[m_Asset.Nodes.Length];
             for (int i = 0; i < m_Asset.Nodes.Length; i++)
@@ -454,6 +454,7 @@ namespace HierarchicalSplatting.Runtime
 
 
             AddNodePackage(new int[] {0}, new int[] {-1});
+
             InitGraphicsBuffers();
             SetGraphicsBuffers();
 
@@ -567,9 +568,9 @@ namespace HierarchicalSplatting.Runtime
             Debug.Log("Init Graphics Buffers");
             Print(m_Asset.Pos, m_Asset.Rots, m_Asset.Scales, m_Asset.SHs, m_Asset.Alphas, m_Asset.Nodes, m_Asset.Boxes);
             nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int) * 7);
-            nodesBuff.SetData(asset.Nodes);
+            nodesBuff.SetData(nodes_to_render);
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(float) * 8);
-            boxesBuff.SetData(asset.Boxes);
+            boxesBuff.SetData(boxes_to_render);
 
             renderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             parentIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
@@ -698,9 +699,9 @@ namespace HierarchicalSplatting.Runtime
                     scales_to_render[dst] = asset.Scales[src];
                 }
                 Debug.Log("node.start_children should be null");
-                asset.Nodes[id].start_children = -1;
-                asset.Nodes[id].start = gaussians_offset + copied_gaussians;
-                asset.Nodes[id].parent = parent;
+                node.start_children = -1;
+                node.start = gaussians_offset + copied_gaussians;
+                node.parent = parent;
 
                 nodes_to_render[nodes_offset + i] = node;
                 boxes_to_render[nodes_offset + i] = asset.Boxes[id];
@@ -709,7 +710,7 @@ namespace HierarchicalSplatting.Runtime
 
                 copied_gaussians += count;
             }
-            Debug.Log("node[0].start_children: " + asset.Nodes[0].start_children);
+
             gaussians_offset += gaussian_copy_count;
             nodes_offset += node_copy_count;
             Debug.Log("gaussians_offset (cuda_gaussians_offset): " + gaussians_offset);
@@ -724,7 +725,7 @@ namespace HierarchicalSplatting.Runtime
 
         }
 
-        int createNodePackage(out int[] n_indices, out int[] p_indices)
+        int createNodePackage(out int[] n_indices, out int[] p_indices)   //this is using the direct asset.Nodes --> no memSet at all
         {
 
             nodesToExpandBuff.GetData(need_children);
@@ -757,17 +758,17 @@ namespace HierarchicalSplatting.Runtime
             {
                 int id = need_children[k];
                 int node_id = cuda2cpu[id];
-                //Node node = asset.Nodes[node_id];
+                Node node = asset.Nodes[node_id];
                 ans += "\tnode id: " + node_id.ToString() + "\n";
-                for (int i = 0; i < asset.Nodes[node_id].count_children; i++)
+                for (int i = 0; i < node.count_children; i++)
                 {
                     ans += "\t" + (asset.Nodes[node_id].start_children).ToString() + "\n";
                     ans += "\t" + (id).ToString() + "\n";
-                    n_indices[nodes_expanded + i] = asset.Nodes[node_id].start_children + i;
+                    n_indices[nodes_expanded + i] = node.start_children + i;
                     p_indices[nodes_expanded + i] = id;
                 }
                 package_parent_starts[k] = nodes_offset + nodes_expanded;
-                nodes_expanded += asset.Nodes[node_id].count_children;
+                nodes_expanded += node.count_children;
             }
             Debug.Log(ans);
             return num_get_children;
