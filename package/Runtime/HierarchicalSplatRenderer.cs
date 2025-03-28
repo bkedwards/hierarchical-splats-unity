@@ -267,6 +267,8 @@ namespace HierarchicalSplatting.Runtime
         Box[] boxes_to_render;
         Node[] nodes_to_render;
 
+        Node[] other_nodes;
+
         int[] cuda2cpu;
         int[] package_parent_starts; //package_parent_starts
         int[] need_children;
@@ -428,6 +430,12 @@ namespace HierarchicalSplatting.Runtime
             shs_to_render = new SHs [ALLGAUSS];
             boxes_to_render = new Box [ALLGAUSS];
             nodes_to_render = new Node [ALLGAUSS];
+
+            other_nodes = new Node[m_Asset.Nodes.Length];
+            for (int i = 0; i < m_Asset.Nodes.Length; i++)
+            {
+                other_nodes[i] = m_Asset.Nodes[i];
+            }
             
             cuda2cpu = new int [GAUSS_MEMLIMIT];
             package_parent_starts = new int[GAUSS_MEMLIMIT];
@@ -554,16 +562,16 @@ namespace HierarchicalSplatting.Runtime
             }
         }
 
-        void InitGraphicsBuffers() 
+        void InitGraphicsBuffers()
         {
             Debug.Log("Init Graphics Buffers");
-            Print(m_Asset.Pos, m_Asset.Rots, m_Asset.Scales, m_Asset.SHs, m_Asset.Alphas , m_Asset.Nodes, m_Asset.Boxes);
+            Print(m_Asset.Pos, m_Asset.Rots, m_Asset.Scales, m_Asset.SHs, m_Asset.Alphas, m_Asset.Nodes, m_Asset.Boxes);
             nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int) * 7);
             nodesBuff.SetData(asset.Nodes);
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(float) * 8);
             boxesBuff.SetData(asset.Boxes);
 
-            renderIndicesBuff= new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
+            renderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             parentIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             nodesOfRenderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             splitsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
@@ -571,15 +579,21 @@ namespace HierarchicalSplatting.Runtime
             nodeIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             nodeIndicesBuff.SetData(node_indices);
             nodesToExpandBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
-            interpTausBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
+            nodesToExpandBuff.SetData(splits);
+            interpTausBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(float));
             kidsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
             NsrcIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
+            NsrcIBuff.SetData(splits);
             NdstIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
             NdstIBuff.SetData(splits);
             NsrcCBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GAUSS_MEMLIMIT, sizeof(int));
+            NsrcCBuff.SetData(splits);
             newNodeIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Raw, GAUSS_MEMLIMIT, sizeof(int));
+            newNodeIndicesBuff.SetData(node_indices);
             numIBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(int));
+            numIBuff.SetData(new int[] { 0 });
             outNBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(int));
+            outNBuff.SetData(new int[] { 0 });
         }
 
         void SetGraphicsBuffers()
@@ -683,10 +697,10 @@ namespace HierarchicalSplatting.Runtime
                     alphas_to_render[dst] = asset.Alphas[src];
                     scales_to_render[dst] = asset.Scales[src];
                 }
-
-                node.start_children = -1;
-                node.start = gaussians_offset + copied_gaussians;
-                node.parent = parent;
+                Debug.Log("node.start_children should be null");
+                asset.Nodes[id].start_children = -1;
+                asset.Nodes[id].start = gaussians_offset + copied_gaussians;
+                asset.Nodes[id].parent = parent;
 
                 nodes_to_render[nodes_offset + i] = node;
                 boxes_to_render[nodes_offset + i] = asset.Boxes[id];
@@ -695,6 +709,7 @@ namespace HierarchicalSplatting.Runtime
 
                 copied_gaussians += count;
             }
+            Debug.Log("node[0].start_children: " + asset.Nodes[0].start_children);
             gaussians_offset += gaussian_copy_count;
             nodes_offset += node_copy_count;
             Debug.Log("gaussians_offset (cuda_gaussians_offset): " + gaussians_offset);
@@ -735,20 +750,26 @@ namespace HierarchicalSplatting.Runtime
             p_indices = new int[node_package_count];
 
             int nodes_expanded = 0;
+            ans = "";
+            ans += "num_get_children: ";
+            ans += num_get_children.ToString() + "\n";
             for (int k = 0; k < num_get_children; k++)
             {
                 int id = need_children[k];
                 int node_id = cuda2cpu[id];
-                Node node = asset.Nodes[node_id];
-                for (int i = 0; i < node.count_children; i++)
+                //Node node = asset.Nodes[node_id];
+                ans += "\tnode id: " + node_id.ToString() + "\n";
+                for (int i = 0; i < asset.Nodes[node_id].count_children; i++)
                 {
-                    n_indices[nodes_expanded + i] = node.start_children + i;
+                    ans += "\t" + (asset.Nodes[node_id].start_children).ToString() + "\n";
+                    ans += "\t" + (id).ToString() + "\n";
+                    n_indices[nodes_expanded + i] = asset.Nodes[node_id].start_children + i;
                     p_indices[nodes_expanded + i] = id;
                 }
                 package_parent_starts[k] = nodes_offset + nodes_expanded;
-                nodes_expanded += node.count_children;
+                nodes_expanded += asset.Nodes[node_id].count_children;
             }
-
+            Debug.Log(ans);
             return num_get_children;
         }
         // AsyncTask
@@ -793,6 +814,18 @@ namespace HierarchicalSplatting.Runtime
                     ans += package_parent_starts[i].ToString();
                 }
                 Debug.Log("package_parent_starts (package_parent_cuda_starts): " + ans);
+                ans = "";
+                for (int i = 0; i< package_indices.Length; i++)
+                {
+                    ans += package_indices[i].ToString();
+                }
+                Debug.Log("package_indices: " + ans);
+                ans = "";
+                for (int i = 0; i< package_parent_indices.Length; i++)
+                {
+                    ans += package_parent_indices[i].ToString();
+                }
+                Debug.Log("package_parent_indices: " + ans);
 
                 Debug.Log("num_new_parents: " + num_new_parents.ToString());
                 if (AddNodePackage(package_indices, package_parent_indices))
@@ -826,6 +859,15 @@ namespace HierarchicalSplatting.Runtime
             int num_node_blocks = (num_active_nodes + 255) / 256;
 
             DispatchChangeNodesShader(num_node_blocks);
+
+            NsrcCBuff.GetData(splits);
+            int need_child = splits[0];
+            Debug.Log("need_child: " + need_child);
+            NsrcIBuff.GetData(splits);
+            int count = splits[0];
+            Debug.Log("count: " + count);
+
+
             DispatchFlaggedShader(1024, num_active_nodes);
             DispatchInclusiveSumShader(1024, num_active_nodes);
 
@@ -870,6 +912,7 @@ namespace HierarchicalSplatting.Runtime
         public void DispatchRenderIndicesIndexed(int threads) 
         {
             int kernel = m_CSHierarchicalCut.FindKernel("countRenderIndicesIndexed");
+            m_CSHierarchicalCut.SetInt("max_nodes", new_node_count);
             m_CSHierarchicalCut.Dispatch(kernel, threads, 1, 1);
         }
         public void DispatchPutRenderIndicesIndexed(int threads) 

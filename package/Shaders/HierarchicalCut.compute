@@ -134,7 +134,7 @@ void putNodes(uint3 id : SV_DispatchThreadID) {
 
     int node_id = node_indices[idx];
     Node node = nodes[node_id];
-    int offset = idx == 0 ? 0 : NdstI[idx - 1];
+    int offset = ((idx == 0) ? 0 : NdstI[idx - 1]);
 
     new_node_indices[offset] = node_id;
     for (int i = 1; i < count; i++)
@@ -146,7 +146,9 @@ void countRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
     if (idx >= max_nodes)
         return;
+
     int node_idx = new_node_indices[idx];
+
     Node node = nodes[node_idx];
     int count = node.count_leafs;
     if (node.depth > 0 && splits[node_idx] == 0)
@@ -162,16 +164,18 @@ void putRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
         return;
     
     int node_idx = new_node_indices[idx];
+
     Node node = nodes[node_idx];
     int count = NsrcI[idx];
-    int offset = idx == 0 ? 0 : NdstI[idx - 1];
+    int offset = ((idx == 0) ? 0 : NdstI[idx - 1]);
     int start = node.start;
 
     int parent_gaussian = -1;
     if (node.parent != -1)
         parent_gaussian = nodes[node.parent].start;
     
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++) 
+    {
         render_indices[offset + i] = node.start + i;
         parent_indices[offset + i] = parent_gaussian;
         nodes_of_render_indices[offset + i] = node_idx;
