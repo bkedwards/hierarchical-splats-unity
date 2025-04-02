@@ -45,7 +45,6 @@ RWStructuredBuffer<int> outN;  //newN and newR          // 7
 float4 viewpoint; //campos                              // 0, 5
 float target_size;                                      // 0, 5
 uint to_render_num;                                     // 5
-uint max_nodes; //num_active_nodes{_gpu}                // 0, 1
 uint N;                                                 // 6, 7
 
 bool inbox(Box box, float4 viewpoint) {
@@ -82,7 +81,7 @@ float computeSizeGPU(Box box, float4 viewpoint)
 [numthreads(1024, 1, 1)]
 void changeNodesOnce(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    if (idx >= max_nodes) 
+    if (idx >= N) 
         return;
 
     int node_id = node_indices[idx];
@@ -126,7 +125,7 @@ void changeNodesOnce(uint3 id : SV_DispatchThreadID) {
 [numthreads(1024, 1, 1)]
 void putNodes(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    if (idx >= max_nodes)
+    if (idx >= N)
         return;
     int count = NsrcI[idx];
     if (count == 0)
@@ -144,7 +143,7 @@ void putNodes(uint3 id : SV_DispatchThreadID) {
 [numthreads(1024, 1, 1)]
 void countRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    if (idx >= max_nodes)
+    if (idx >= N)
         return;
 
     int node_idx = new_node_indices[idx];
@@ -160,7 +159,7 @@ void countRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
 [numthreads(1024, 1, 1)]
 void putRenderIndicesIndexed(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    if (idx >= max_nodes)
+    if (idx >= N)
         return;
     
     int node_idx = new_node_indices[idx];

@@ -91,4 +91,25 @@ namespace HierarchicalSplatting
 
     }
 
+    public struct MemSet 
+    {
+        Vector3[] pos_buff;
+        Vector3[] scales_buff;
+        Vector4[] rots_buff;
+        float[] alphas_buff;
+        SHs[] shs_buff;
+        Box[] boxes_buff;
+        Node[] nodes_buff;
+
+    }
+
+    public struct LightSet
+    {
+        int to_render;
+        int[] render_indices;
+        int[] parent_indices;
+        int[] nodes_of_render_indices;
+    }
+
+
 }
