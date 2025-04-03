@@ -91,24 +91,63 @@ namespace HierarchicalSplatting
 
     }
 
-    public struct MemSet 
+    public class MemSet 
     {
-        Vector3[] pos_buff;
-        Vector3[] scales_buff;
-        Vector4[] rots_buff;
-        float[] alphas_buff;
-        SHs[] shs_buff;
-        Box[] boxes_buff;
-        Node[] nodes_buff;
+        public GraphicsBuffer posBuff;
+        public GraphicsBuffer scalesBuff;
+        public GraphicsBuffer rotsBuff;
+        public GraphicsBuffer alphasBuff;
+        public GraphicsBuffer shsBuff;
+        public GraphicsBuffer boxesBuff;
+        public GraphicsBuffer nodesBuff;
+
+        public MemSet(int size_pos, int size_nodes)
+        {
+            posBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(float));
+            scalesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(float)); 
+            rotsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(float));
+            alphasBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, sizeof(float)); 
+            shsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 48 * sizeof(float)); 
+            boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 8 * sizeof(float));
+            nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 7 * sizeof(int)); 
+        }
+
+        public void Release()
+        {
+            posBuff.Dispose();
+            scalesBuff.Dispose();
+            rotsBuff.Dispose();
+            alphasBuff.Dispose();
+            shsBuff.Dispose();
+            boxesBuff.Dispose();
+            nodesBuff.Dispose();
+        }
 
     }
 
-    public struct LightSet
+    public class LightSet
     {
-        int to_render;
-        int[] render_indices;
-        int[] parent_indices;
-        int[] nodes_of_render_indices;
+        public int toRender;
+        public GraphicsBuffer renderIndicesBuff;
+        public GraphicsBuffer parentIndicesBuff;
+        public GraphicsBuffer nodesOfRenderIndicesBuff;
+
+        public LightSet(int size)
+        {
+            toRender = 0;
+            renderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int)); 
+            parentIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int));
+            nodesOfRenderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int)); 
+        }
+
+        public void Release()
+        {
+            renderIndicesBuff.Dispose();
+            parentIndicesBuff.Dispose();
+            nodesOfRenderIndicesBuff.Dispose();
+        }
+
+
     }
 
 
