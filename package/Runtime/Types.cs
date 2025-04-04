@@ -135,9 +135,13 @@ namespace HierarchicalSplatting
         public LightSet(int size)
         {
             toRender = 0;
-            renderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int)); 
+            renderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int));
             parentIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int));
             nodesOfRenderIndicesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size, sizeof(int)); 
+            int[] zeroData = new int[size];
+            renderIndicesBuff.SetData(zeroData);
+            parentIndicesBuff.SetData(zeroData);
+            nodesOfRenderIndicesBuff.SetData(zeroData);
         }
 
         public void Release()

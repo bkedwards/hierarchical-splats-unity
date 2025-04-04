@@ -24,19 +24,6 @@ struct Box {
     float4 maxx;
 };
 
-struct SHs {
-    float3 dc0;
-    float3 sh1, sh2, sh3, sh4, sh5, sh6, sh7, sh8, sh9, shA, shB, shC, shD, shE, shF;
-}
-
-RWStructuredBuffer<float3> curr_pos;
-RWStructuredBuffer<float3> curr_scales;
-RWStructuredBuffer<float4> curr_rots;
-RWStructuredBuffer<float> curr_alphas;
-RWStructuredBuffer<SHs> curr_shs;
-RWStructuredBuffer<Box> curr_boxes;
-RWStructuredBuffer<Node> curr_nodes;
-
 RWStructuredBuffer<Node> nodes;                         // 0, 1, 2, 3, 4, 5
 StructuredBuffer<Box> boxes;                            // 0, 5
 
@@ -255,8 +242,6 @@ void InclusiveSum(uint id : SV_DispatchThreadID)
         sum += NsrcI[i];
     }
     NdstI[id] = sum;
-    if (id == N - 1)
-        outN[0] = sum;
 }
 
 [numthreads(256, 1, 1)]
