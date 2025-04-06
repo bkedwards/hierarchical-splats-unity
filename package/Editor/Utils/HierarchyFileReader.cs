@@ -198,6 +198,8 @@ namespace HierarchicalSplatting.Editor.Utils
                             HalfToFloat(halfSHs[baseIdx]),
                             HalfToFloat(halfSHs[baseIdx + 1]),
                             HalfToFloat(halfSHs[baseIdx + 2]));
+                    /*
+                    //OG READ IN (NO REORDERING) -- CONFIRMED TO WORK
                     sh.sh1 = new Vector3(
                             HalfToFloat(halfSHs[baseIdx + 3]),
                             HalfToFloat(halfSHs[baseIdx + 4]),
@@ -257,42 +259,35 @@ namespace HierarchicalSplatting.Editor.Utils
                     sh.shF = new Vector3(
                             HalfToFloat(halfSHs[baseIdx + 45]),
                             HalfToFloat(halfSHs[baseIdx + 46]),
-                            HalfToFloat(halfSHs[baseIdx + 47]));
-                    shs[i] = sh;
+                            HalfToFloat(halfSHs[baseIdx + 47]));*/
 
-
-
-                    /*int baseIdx = i * 48;
-                    SHs sh = new SHs
-                    {
-                        dc0 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx]) * kSH_C0 + 0.5f,
-                            HalfToFloat(halfSHs[baseIdx + 1]) * kSH_C0 + 0.5f,
-                            HalfToFloat(halfSHs[baseIdx + 2]) * kSH_C0 + 0.5f)
-                    };
-
-                    Vector3[] shValues = new Vector3[15];
+                    Vector3[] reordered = new Vector3[15];
                     for (int j = 0; j < 15; j++)
                     {
-                        shValues[j] = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + j + 3]),
-                            HalfToFloat(halfSHs[baseIdx + j + 18]),
-                            HalfToFloat(halfSHs[baseIdx + j + 33])
-                        );
+                        float r = HalfToFloat(halfSHs[baseIdx + j + 3]);
+                        float g = HalfToFloat(halfSHs[baseIdx + j + 18]);
+                        float b = HalfToFloat(halfSHs[baseIdx + j + 33]);
+                        reordered[j] = new Vector3(r, g, b);
                     }
 
-                    unsafe
-                    {
+                    // Assign reordered coefficients to fields sh1 - shF
+                    sh.sh1 = reordered[0];
+                    sh.sh2 = reordered[1];
+                    sh.sh3 = reordered[2];
+                    sh.sh4 = reordered[3];
+                    sh.sh5 = reordered[4];
+                    sh.sh6 = reordered[5];
+                    sh.sh7 = reordered[6];
+                    sh.sh8 = reordered[7];
+                    sh.sh9 = reordered[8];
+                    sh.shA = reordered[9];
+                    sh.shB = reordered[10];
+                    sh.shC = reordered[11];
+                    sh.shD = reordered[12];
+                    sh.shE = reordered[13];
+                    sh.shF = reordered[14];
+                    shs[i] = sh;
 
-                        fixed (Vector3* src = shValues)
-                        {
-                            Vector3* dest = &sh.sh1;
-
-                            UnsafeUtility.MemCpy(dest, src, sizeof(Vector3) * 15);
-                        }
-                    }
-
-                    shs[i] = sh;*/
                 }
 
                 rawSHData.Dispose();
@@ -406,38 +401,27 @@ namespace HierarchicalSplatting.Editor.Utils
 
             NativeArray<RichPoint> points;
             NativeArray<byte> rawPointData;
+            long headerEndPos = 0;
             using (FileStream fileStream = new FileStream(plyfile, FileMode.Open, FileAccess.Read))
-            using (StreamReader reader = new StreamReader(fileStream, Encoding.ASCII)) // Read text header
             {
-                string buff;
-                reader.ReadLine();
-                reader.ReadLine();
-                buff = reader.ReadLine();
-                if (buff == null)
-                    throw new Exception("Unexpected EOF in: " + plyfile);
-
-                string[] parts = buff.Split(' ');
-                if (parts.Length < 3)
-                    throw new Exception("Invalid header format: " + plyfile);
-
-                int noerp = int.Parse(parts[2]); 
-
-                while ((buff = reader.ReadLine()) != null)
+                using (StreamReader reader = new StreamReader(fileStream, Encoding.ASCII, false, 1024, true))
                 {
-                    if (buff.Trim() == "end_header")
-                        break;
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.Trim() == "end_header")
+                            break;
+                    }
+                    headerEndPos = fileStream.Position;
                 }
 
-                fileStream.Position = fileStream.Seek(0, SeekOrigin.Current);
-
+                fileStream.Position = headerEndPos;
                 using (BinaryReader binReader = new BinaryReader(fileStream))
                 {
-                    rawPointData = new NativeArray<byte>(count * 104, Allocator.Temp);
-
+                    int structSize = UnsafeUtility.SizeOf<RichPoint>();
+                    rawPointData = new NativeArray<byte>(count * structSize, Allocator.Temp);
                     binReader.Read(rawPointData);
-
                     points = rawPointData.Reinterpret<RichPoint>(1);
-                
                 }
             }
 
@@ -465,6 +449,7 @@ namespace HierarchicalSplatting.Editor.Utils
                 SHs sh = new SHs();
 
                 sh.dc0 = p.sh0;
+
                 sh.sh1 = p.sh1;
                 sh.sh2 = p.sh2;
                 sh.sh3 = p.sh3;
@@ -481,6 +466,26 @@ namespace HierarchicalSplatting.Editor.Utils
                 sh.shD = Vector3.zero;
                 sh.shE = Vector3.zero;
                 sh.shF = Vector3.zero;
+
+                /*
+                // OG READ-IN - NO REORDERING -- NOT CONFIRMED TO WORK YET
+                sh.sh1 = new Vector(p.sh1[0], p.sh2[0], p.sh3[0]);
+                sh.sh6 = new Vector(p.sh1[1], p.sh2[1], p.sh3[1]);
+                sh.shB = new Vector(p.sh1[2], p.sh2[2], p.sh3[2]);
+
+                sh.sh2 = Vector3.zero;
+                sh.sh3 = Vector3.zero;
+                sh.sh4 = Vector3.zero;
+                sh.sh5 = Vector3.zero;
+                sh.sh7 = Vector3.zero;
+                sh.sh8 = Vector3.zero;
+                sh.sh9 = Vector3.zero;
+                sh.shA = Vector3.zero;
+                sh.shC = Vector3.zero;
+                sh.shD = Vector3.zero;
+                sh.shE = Vector3.zero;
+                sh.shF = Vector3.zero;
+                */
 
                 shs[k] = sh;
             }

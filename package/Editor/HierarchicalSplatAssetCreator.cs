@@ -351,24 +351,23 @@ namespace HierarchicalSplatting.Editor
 
         static int SplatIndexToTextureIndex(uint idx)
         {
-            uint width = HierarchicalSplatAsset.kTextureWidth;
-            uint x = idx % width;
-            uint y = idx / width;
-            return (int)(y * width + x);
+            // Without Morton encoding, we assume a simple row‐major ordering.
+            // The splat at index 'idx' is stored at the same index in the 1D texture array.
+            return (int)idx;
         }
 
         [BurstCompile]
         struct CreateColorDataJob : IJobParallelFor
         {
-            [ReadOnly] public NativeArray<SHs> m_InputSHs;
-            [ReadOnly] public NativeArray<float> m_InputAlphas;
+            [ReadOnly] public NativeArray<InputSplatData> m_Input;
             [NativeDisableParallelForRestriction] public NativeArray<float4> m_Output;
 
             public void Execute(int index)
             {
+                var splat = m_Input[index];
+                // For each splat, compute the destination index in a row-major layout.
                 int i = SplatIndexToTextureIndex((uint)index);
-                SHs sh = m_InputSHs[index];
-                m_Output[i] = new float4(sh.dc0.x, sh.dc0.y, sh.dc0.z, m_InputAlphas[index]);
+                m_Output[i] = new float4(splat.dc0.x, splat.dc0.y, splat.dc0.z, splat.opacity);
             }
         }
 
@@ -378,6 +377,7 @@ namespace HierarchicalSplatting.Editor
             public int width, height;
             [ReadOnly] public NativeArray<float4> inputData;
             [NativeDisableParallelForRestriction] public NativeArray<byte> outputData;
+            public GaussianSplatAsset.ColorFormat format;
             public int formatBytesPerPixel;
 
             public unsafe void Execute(int y)
@@ -388,7 +388,27 @@ namespace HierarchicalSplatting.Editor
                 {
                     float4 pix = inputData[srcIdx];
 
-                    *(float4*) dstPtr = pix;
+                    switch (format)
+                    {
+                        case GaussianSplatAsset.ColorFormat.Float32x4:
+                        {
+                            *(float4*) dstPtr = pix;
+                        }
+                            break;
+                        case GaussianSplatAsset.ColorFormat.Float16x4:
+                        {
+                            half4 enc = new half4(pix);
+                            *(half4*) dstPtr = enc;
+                        }
+                            break;
+                        case GaussianSplatAsset.ColorFormat.Norm8x4:
+                        {
+                            pix = math.saturate(pix);
+                            uint enc = (uint)(pix.x * 255.5f) | ((uint)(pix.y * 255.5f) << 8) | ((uint)(pix.z * 255.5f) << 16) | ((uint)(pix.w * 255.5f) << 24);
+                            *(uint*) dstPtr = enc;
+                        }
+                            break;
+                    }
 
                     srcIdx++;
                     dstPtr += formatBytesPerPixel;
@@ -396,58 +416,53 @@ namespace HierarchicalSplatting.Editor
             }
         }
 
-        void CreateColorData(NativeArray<SHs> shs, NativeArray<float> alphas, string filePath, ref Hash128 dataHash)
+        void CreateColorData(NativeArray<InputSplatData> inputSplats, string filePath, ref Hash128 dataHash)
         {
-            var (width, height) = HierarchicalSplatAsset.CalcTextureSize(shs.Length);
+            var (width, height) = GaussianSplatAsset.CalcTextureSize(inputSplats.Length);
             NativeArray<float4> data = new(width * height, Allocator.TempJob);
 
-            CreateColorDataJob job = new CreateColorDataJob
-            {
-                m_InputSHs = shs,
-                m_InputAlphas = alphas,
-                m_Output = data
-            };
-            job.Schedule(shs.Length, 8192).Complete();
+            CreateColorDataJob job = new CreateColorDataJob();
+            job.m_Input = inputSplats;
+            job.m_Output = data;
+            job.Schedule(inputSplats.Length, 8192).Complete();
 
             dataHash.Append(data);
-            dataHash.Append(0);
+            dataHash.Append((int)m_FormatColor);
 
-            GraphicsFormat gfxFormat = GraphicsFormat.R32G32B32A32_SFloat;
+            GraphicsFormat gfxFormat = GaussianSplatAsset.ColorFormatToGraphics(m_FormatColor);
             int dstSize = (int)GraphicsFormatUtility.ComputeMipmapSize(width, height, gfxFormat);
 
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
+            if (GraphicsFormatUtility.IsCompressedFormat(gfxFormat))
             {
-
-                if (GraphicsFormatUtility.IsCompressedFormat(gfxFormat))
+                Texture2D tex = new Texture2D(width, height, GraphicsFormat.R32G32B32A32_SFloat,
+                    TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate);
+                tex.SetPixelData(data, 0);
+                EditorUtility.CompressTexture(tex, GraphicsFormatUtility.GetTextureFormat(gfxFormat), 100);
+                NativeArray<byte> cmpData = tex.GetPixelData<byte>(0);
+                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+                fs.Write(cmpData);
+                DestroyImmediate(tex);
+            }
+            else
+            {
+                ConvertColorJob jobConvert = new ConvertColorJob
                 {
-                    Texture2D tex = new Texture2D(width, height, GraphicsFormat.R32G32B32A32_SFloat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate);
-                    tex.SetPixelData(data, 0);
-                    EditorUtility.CompressTexture(tex, GraphicsFormatUtility.GetTextureFormat(gfxFormat), 100);
-                    NativeArray<byte> cmpData = tex.GetPixelData<byte>(0);
-                    
-                    fs.Write(cmpData);
-                    cmpData.Dispose();
-
-                    DestroyImmediate(tex);
-                }
-                else
-                {
-                    ConvertColorJob jobConvert = new ConvertColorJob
-                    {
-                        width = width,
-                        height = height,
-                        inputData = data,
-                        outputData = new NativeArray<byte>(dstSize, Allocator.TempJob),
-                        formatBytesPerPixel = dstSize / width / height
-                    };
-                    jobConvert.Schedule(height, 1).Complete();
-                    fs.Write(jobConvert.outputData);
-                    jobConvert.outputData.Dispose();
-                }
+                    width = width,
+                    height = height,
+                    inputData = data,
+                    format = m_FormatColor,
+                    outputData = new NativeArray<byte>(dstSize, Allocator.TempJob),
+                    formatBytesPerPixel = dstSize / width / height
+                };
+                jobConvert.Schedule(height, 1).Complete();
+                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+                fs.Write(jobConvert.outputData);
+                jobConvert.outputData.Dispose();
             }
 
             data.Dispose();
         }
+
 
         [BurstCompile]
         public struct CreateSHDataJob : IJobParallelFor
