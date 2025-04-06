@@ -144,57 +144,72 @@ namespace HierarchicalSplatting.Editor
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Reading merged hierarchy file", 0.0f);
 
-            Vector3 [] eigenpos;
-            Vector3 [] eigenscale;
-            Vector4 [] eigenrot;
-            SHs [] shs;
-            float [] alphas;
-            Node [] nodes;
-            Box [] boxes;
+            NativeArray<uint> pos;
+            NativeArray<uint> other;
+            NativeArray<float4> color;
+            NativeArray<uint> shs;
+            NativeArray<Node> nodes;
+            NativeArray<Box> boxes;
 
-            int P1 = HierarchyFileReader.LoadHierarchy(m_InputModelFile, out eigenpos, out shs,  out alphas,  out eigenscale,  out eigenrot, out nodes, out boxes);
+            int splatCount = HierarchyFileReader.LoadHierarchy(m_InputModelFile, out pos, out shs,  out other,  out color, out nodes, out boxes);
 
-            Print(eigenpos, eigenrot, eigenscale, shs, alphas , nodes, boxes);
 
-            if (P1 == 0)
+            if (splatCount == 0)
             {
                 EditorUtility.ClearProgressBar();
-                //DisposeHierarchy(ref eigenpos, ref eigenrot, ref eigenscale, ref shs, ref alphas, ref nodes, ref boxes);
+                DisposeHierarchy(ref pos, ref other, ref color ref shs, ref nodes, ref boxes);
                 return;
             }
-            Debug.Log($"CreateAsset::SH.Length: {shs.Length}");
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Reading scaffold files", 0.5f);
 
-            Vector3 [] skyboxpos;
-            Vector3 [] skyboxscale;
-            Vector4 [] skyboxrot;
-            SHs [] skyboxsh;
-            float [] skyboxalpha;
+            NativeArray<uint> skyboxPos;
+            NativeArray<uint> skyboxOther;
+            NativeArray<float4> skyboxColor;
+            NativeArray<uint> skyboxSHs;
 
-            int skyboxnum = HierarchyFileReader.loadScaffold(m_InputScaffoldFile, out skyboxpos, out skyboxsh, out skyboxalpha, out skyboxscale, out skyboxrot);
+            int skyboxNum = HierarchyFileReader.loadScaffold(m_InputScaffoldFile, out skyboxPos, out skyboxSHs, out skyboxColor, out skyboxOther);
 
+            EditorUtility.DisplayProgressBar(kProgressTitle, "Sending Data Jobs", 0.7f);
+            int count = splatCount + skyboxNum;
 
+            var (width, height) = GaussianSplatAsset.CalcTextureSize(count);
+            int paddedSize = width * height;
+            
+            NativeArray<float4> allColor = new NativeArray<float4>(paddedSize, Allocator.Temp);
+            NativeArray<uint> allPos = new NativeArray<uint>(count * 3);
+            NativeArray<uint> allOther = new NativeArray<uint>(count * 4);
+            NativeArray<uint> allSHs = new NativeArray<uint>(count * 48);
+            
+            NativeArray<float4>.Copy(skyboxColor, allColor, skyboxNum);
+            NativeArray<uint>.Copy(skyboxPos, allPos, skyboxNum * 3);
+            NativeArray<uint>.Copy(skyboxOther, allOther, skyboxNum * 4);
+            NativeArray<uint>.Copy(skyboxSHs, allSHs, skyboxNum * 48);
+            
             string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputModelFile));
 
-            EditorUtility.DisplayProgressBar(kProgressTitle, "Creating asset objects", 0.7f);
+            EditorUtility.DisplayProgressBar(kProgressTitle, "Creating Asset", 0.7f);
             
             HierarchicalSplatAsset asset = ScriptableObject.CreateInstance<HierarchicalSplatAsset>();
-            asset.Initialize(P1, skyboxnum);
+            asset.Initialize(splatCount, skyboxNum);
             asset.name = baseName;
-            EditorUtility.DisplayProgressBar(kProgressTitle, "Creating data hash", 0.75f);
 
-            var dataHash = new Hash128((uint)asset.splatCount, (uint)asset.formatVersion, 0, 0);
+            asset.posData = pos.ToArray();
+            asset.otherData = other.ToArray();
+            asset.colorData = color.Select(c => (Vector4)c).ToArray();
+            asset.shData = shs.ToArray();
+            asset.nodeData = nodes.ToArray();
+            asset.boxData = boxes.ToArray();
 
-            asset.SetDataHash(dataHash);
+            asset.allPos = allPos.ToArray();
+            asset.allOther = allOther.ToArray();
+            asset.allSHs = allSHs.ToArray();
+            asset.allColor = allColor.Select(c => (Vector4)c).ToArray();
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Initial texture import", 0.85f);
-            //AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
+            AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Setup data onto asset", 0.95f);
-
-            asset.SetHierarchyData(ref eigenpos, ref eigenscale, ref eigenrot, ref alphas, ref shs, ref boxes, ref nodes);
-            asset.SetScaffoldData(ref skyboxpos, ref skyboxscale, ref skyboxrot, ref skyboxalpha, ref skyboxsh);
 
             var assetPath = Path.Combine(m_OutputFolder, $"{baseName}.asset");
             var savedAsset = CreateOrReplaceAsset(asset, assetPath);
@@ -205,421 +220,43 @@ namespace HierarchicalSplatting.Editor
             EditorUtility.ClearProgressBar();
 
             Selection.activeObject = savedAsset;
+
+            DisposeHierarchy(pos, other, color, shs, nodes, boxes);
+            DisposeScaffold(skyboxPos, skyboxOther, skyboxColor, skyboxSHs);
+
+            allPos?.Dispose();
+            allOther?.Dispose();
+            allSHs?.Dispose();
+            allColor?.Dispose();
         }
 
-        [BurstCompile]
-        struct CreatePositionsDataJob : IJobParallelFor
+        DisposeHierarchy(            
+            NativeArray<uint> pos, 
+            NativeArray<uint> other, 
+            NativeArray<float4> color, 
+            NativeArray<uint> shs, 
+            NativeArray<Node> nodes, 
+            NativeArray<Box> boxes) 
         {
-            [ReadOnly] public NativeArray<Vector3> m_InputPos;
-            [NativeDisableParallelForRestriction] public NativeArray<byte> m_Output;
-
-            public unsafe void Execute(int index)
-            {
-                byte* outputPtr = (byte*) m_Output.GetUnsafePtr() + index * 12;
-                float3 v = m_InputPos[index];
-                *(float*) outputPtr = v.x;
-                *(float*) (outputPtr + 4) = v.y;
-                *(float*) (outputPtr + 8) = v.z;
-            }
+            pos?.Dispose();
+            other?.Dispose();
+            color.Dispose();
+            shs.Dispose();
+            nodes.Dispose();
+            boxes.Dispose();
         }
 
-        void CreatePositionsData(NativeArray<Vector3> inputPos, string filePath, ref Hash128 dataHash)
+        DisposeScaffold (
+            NativeArray<uint> pos, 
+            NativeArray<uint> other, 
+            NativeArray<float4> color, 
+            NativeArray<uint> sh, 
+        )
         {
-            int dataLen = inputPos.Length * 12; //sizeof(Vector3)
-            NativeArray<byte> data = new(dataLen, Allocator.TempJob);
-
-            CreatePositionsDataJob job = new CreatePositionsDataJob
-            {
-                m_InputPos = inputPos,
-                m_Output = data
-            };
-            job.Schedule(inputPos.Length, 8192).Complete();
-
-            dataHash.Append(data);
-
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-            {
-                fs.Write(data);
-            }
-
-            data.Dispose();
-        }
-
-        [BurstCompile]
-        struct CreateOtherDataJob : IJobParallelFor
-        {
-            [ReadOnly] public NativeArray<Vector4> m_InputRot;
-            [ReadOnly] public NativeArray<Vector3> m_InputScale;
-            [NativeDisableParallelForRestriction] public NativeArray<byte> m_Output;
-
-            public unsafe void Execute(int index)
-            {
-                byte* outputPtr = (byte*) m_Output.GetUnsafePtr() + index * 16;
-
-                Vector4 rotQ = m_InputRot[index];
-                uint enc = (uint)(rotQ.x * 1023.5f) | ((uint)(rotQ.y * 1023.5f) << 10) | ((uint)(rotQ.z * 1023.5f) << 20) | ((uint)(rotQ.w * 3.5f) << 30);
-                *(uint*) outputPtr = enc;
-
-                float3 v = m_InputScale[index];
-                *(float*) (outputPtr + 4) = v.x;
-                *(float*) (outputPtr + 8) = v.y;
-                *(float*) (outputPtr + 12) = v.z;
-
-            }
-        }
-        void CreateOtherData(NativeArray<Vector4> rot, NativeArray<Vector3> scale, string filePath, ref Hash128 dataHash)
-        {
-            int dataLen = rot.Length * 16;
-            NativeArray<byte> data = new(dataLen, Allocator.TempJob);
-
-            CreateOtherDataJob job = new CreateOtherDataJob
-            {
-                m_InputRot = rot,
-                m_InputScale = scale,
-                m_Output = data
-            };
-            job.Schedule(rot.Length, 8192).Complete();
-
-            dataHash.Append(data);
-
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-            {
-                fs.Write(data);
-            }
-
-            data.Dispose();
-        }
-
-        void Print(
-            Vector3[] eigenpos, 
-            Vector4[] eigenrot, 
-            Vector3[] eigenscale, 
-            SHs [] shs, 
-            float [] alphas, 
-            Node [] nodes, 
-            Box [] boxes)
-        {
-            string ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenpos[i].x.ToString() + ", " + eigenpos[i].y.ToString() + ", " + eigenpos[i].z.ToString() + ") ";
-            }
-            Debug.Log("Pos: " + ans);
-            ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenscale[i].x.ToString() + ", " + eigenscale[i].y.ToString() + ", " + eigenscale[i].z.ToString() + ") ";
-            }
-            Debug.Log("Scale: " + ans);
-            ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenrot[i].x.ToString() + ", " + eigenrot[i].y.ToString() + ", " + eigenrot[i].z.ToString() + ", " + eigenrot[i].w.ToString() + ") ";
-            }
-            Debug.Log("Rot: " + ans);
-            ans = "";
-            for (int i = 0; i<10; i++)
-            {
-                ans += alphas[i] + " ";
-            }
-            Debug.Log("alpha: " + ans);
-            ans = "\n";
-            for (int i = 0; i < 5; i++) 
-            {
-                ans += "\t[" + i.ToString() + "]: " + shs[i].dc0.ToString() + " " + shs[i].sh1.ToString() + " " + shs[i].sh2.ToString() + "\n";
-            }
-            Debug.Log("shs: " +  ans);
-            if (nodes != default)
-            {
-                ans = "";
-                for (int i = 0; i < 5; i++ ) {
-                    ans += "\t[" + i.ToString() + "]: " + nodes[i].depth.ToString() + " " + nodes[i].parent.ToString() + " " + nodes[i].start.ToString() + " " + nodes[i].count_leafs.ToString() + " " + nodes[i].count_merged.ToString() + " "  + nodes[i].start_children.ToString() + " " + nodes[i].count_children.ToString() + " \n";
-
-                }
-                Debug.Log("nodes: " + ans);
-            }
-            if (boxes != default)
-            {
-                ans = "";
-                for (int i = 0; i < 5; i++ ) {
-                    ans += "\t[" + i.ToString() + "]: " + boxes[i].minn.ToString() + " " + boxes[i].maxx.ToString() + "\n";
-                }
-                Debug.Log("boxes: " + ans);
-            }
-        }
-
-
-        static int SplatIndexToTextureIndex(uint idx)
-        {
-            // Without Morton encoding, we assume a simple row‐major ordering.
-            // The splat at index 'idx' is stored at the same index in the 1D texture array.
-            return (int)idx;
-        }
-
-        [BurstCompile]
-        struct CreateColorDataJob : IJobParallelFor
-        {
-            [ReadOnly] public NativeArray<InputSplatData> m_Input;
-            [NativeDisableParallelForRestriction] public NativeArray<float4> m_Output;
-
-            public void Execute(int index)
-            {
-                var splat = m_Input[index];
-                // For each splat, compute the destination index in a row-major layout.
-                int i = SplatIndexToTextureIndex((uint)index);
-                m_Output[i] = new float4(splat.dc0.x, splat.dc0.y, splat.dc0.z, splat.opacity);
-            }
-        }
-
-        [BurstCompile]
-        struct ConvertColorJob : IJobParallelFor
-        {
-            public int width, height;
-            [ReadOnly] public NativeArray<float4> inputData;
-            [NativeDisableParallelForRestriction] public NativeArray<byte> outputData;
-            public GaussianSplatAsset.ColorFormat format;
-            public int formatBytesPerPixel;
-
-            public unsafe void Execute(int y)
-            {
-                int srcIdx = y * width;
-                byte* dstPtr = (byte*) outputData.GetUnsafePtr() + y * width * formatBytesPerPixel;
-                for (int x = 0; x < width; ++x)
-                {
-                    float4 pix = inputData[srcIdx];
-
-                    switch (format)
-                    {
-                        case GaussianSplatAsset.ColorFormat.Float32x4:
-                        {
-                            *(float4*) dstPtr = pix;
-                        }
-                            break;
-                        case GaussianSplatAsset.ColorFormat.Float16x4:
-                        {
-                            half4 enc = new half4(pix);
-                            *(half4*) dstPtr = enc;
-                        }
-                            break;
-                        case GaussianSplatAsset.ColorFormat.Norm8x4:
-                        {
-                            pix = math.saturate(pix);
-                            uint enc = (uint)(pix.x * 255.5f) | ((uint)(pix.y * 255.5f) << 8) | ((uint)(pix.z * 255.5f) << 16) | ((uint)(pix.w * 255.5f) << 24);
-                            *(uint*) dstPtr = enc;
-                        }
-                            break;
-                    }
-
-                    srcIdx++;
-                    dstPtr += formatBytesPerPixel;
-                }
-            }
-        }
-
-        void CreateColorData(NativeArray<InputSplatData> inputSplats, string filePath, ref Hash128 dataHash)
-        {
-            var (width, height) = GaussianSplatAsset.CalcTextureSize(inputSplats.Length);
-            NativeArray<float4> data = new(width * height, Allocator.TempJob);
-
-            CreateColorDataJob job = new CreateColorDataJob();
-            job.m_Input = inputSplats;
-            job.m_Output = data;
-            job.Schedule(inputSplats.Length, 8192).Complete();
-
-            dataHash.Append(data);
-            dataHash.Append((int)m_FormatColor);
-
-            GraphicsFormat gfxFormat = GaussianSplatAsset.ColorFormatToGraphics(m_FormatColor);
-            int dstSize = (int)GraphicsFormatUtility.ComputeMipmapSize(width, height, gfxFormat);
-
-            if (GraphicsFormatUtility.IsCompressedFormat(gfxFormat))
-            {
-                Texture2D tex = new Texture2D(width, height, GraphicsFormat.R32G32B32A32_SFloat,
-                    TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate);
-                tex.SetPixelData(data, 0);
-                EditorUtility.CompressTexture(tex, GraphicsFormatUtility.GetTextureFormat(gfxFormat), 100);
-                NativeArray<byte> cmpData = tex.GetPixelData<byte>(0);
-                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-                fs.Write(cmpData);
-                DestroyImmediate(tex);
-            }
-            else
-            {
-                ConvertColorJob jobConvert = new ConvertColorJob
-                {
-                    width = width,
-                    height = height,
-                    inputData = data,
-                    format = m_FormatColor,
-                    outputData = new NativeArray<byte>(dstSize, Allocator.TempJob),
-                    formatBytesPerPixel = dstSize / width / height
-                };
-                jobConvert.Schedule(height, 1).Complete();
-                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-                fs.Write(jobConvert.outputData);
-                jobConvert.outputData.Dispose();
-            }
-
-            data.Dispose();
-        }
-
-
-        [BurstCompile]
-        public struct CreateSHDataJob : IJobParallelFor
-        {
-            [ReadOnly] public NativeArray<SHs> m_InputSHs; 
-            [WriteOnly] public NativeArray<byte> m_Output;
-
-            public long startOffset;
-
-            public unsafe void Execute(int index)
-            {
-
-                long offset = startOffset + index * 192; // 48 * 4 bytes per SH struct
-
-                SHs sh = m_InputSHs[index];
-
-                byte* outputPtr = (byte*)m_Output.GetUnsafePtr() + index * 192;
-                float* inputPtr = (float*)m_InputSHs.GetUnsafeReadOnlyPtr() + startOffset; 
-
-                for (int i = 0; i < 48; i++)
-                {
-                    *(float*)outputPtr = inputPtr[i];
-                    outputPtr += 4;
-                }
-            }
-
-        }
-
-        public string[] CreateSHData(NativeArray<SHs> shs, string fileName, ref Hash128 dataHash, ref bool batchFiles)
-        {
-            long dataLen = (long)shs.Length * 192; // 192 = 48 * 4. Total length of shs in bytes
-            int maxBatchSize = 2013265920; //Slightly less than 2GB, maxmimum amount of SHs you can fit inside 2GB file
-            int BatchSize = dataLen < (long)(maxBatchSize) ? (int)dataLen : (maxBatchSize);
-            
-            string[] filePaths;
-            if (BatchSize == maxBatchSize) 
-            {
-                batchFiles = true;
-                filePaths = new string[(int)(dataLen / (long)maxBatchSize + 1)];
-            }
-            else
-            {
-                batchFiles = false;
-                filePaths = new string[1];
-            }
-
-            for (long i = 0; i < dataLen; i += (long)BatchSize)
-            {
-                int currentBatchSize = (dataLen - i) < (long)BatchSize ? (int)(dataLen - i) : BatchSize;
-
-                NativeArray<byte> buffer = new NativeArray<byte>(currentBatchSize, Allocator.TempJob);
-
-                CreateSHDataJob job = new CreateSHDataJob
-                {
-                    m_InputSHs = shs,
-                    m_Output = buffer,
-                    startOffset = i
-                };
-
-                job.Schedule(currentBatchSize / 192, 4096).Complete();
-
-                dataHash.Append(buffer);
-                
-                string filePath = batchFiles ? fileName + (i / BatchSize).ToString() + "_shs.bytes" : fileName + "_shs.bytes";
-                
-                using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-                {
-                    fs.Write(buffer);
-                }
-                filePaths[i / BatchSize] = filePath;
-                buffer.Dispose();
-            }
-
-
-            return filePaths;
-        }
-
-        [BurstCompile]
-        struct CreateNodeDataJob : IJobParallelFor
-        {
-            [ReadOnly] public NativeArray<Node> m_InputNodes;
-            [NativeDisableParallelForRestriction] public NativeArray<byte> m_Output;
-
-            public unsafe void Execute(int index)
-            {
-                byte* outputPtr = (byte*) m_Output.GetUnsafePtr() + index * 28;
-                Node n = m_InputNodes[index];
-                *(int*) outputPtr = n.depth;
-                *(int*) (outputPtr + 4) = n.parent;
-                *(int*) (outputPtr + 8) = n.start;
-                *(int*) (outputPtr + 12) = n.count_leafs;
-                *(int*) (outputPtr + 16) = n.count_merged;
-                *(int*) (outputPtr + 20) = n.start_children;
-                *(int*) (outputPtr + 24) = n.count_children;
-            }
-        }
-
-        void CreateNodeData(NativeArray<Node> inputNodes, string filePath, ref Hash128 dataHash)
-        {
-            int dataLen = inputNodes.Length * 28; //sizeof(Node) = 28 bytes
-            NativeArray<byte> data = new(dataLen, Allocator.TempJob);
-
-            CreateNodeDataJob job = new CreateNodeDataJob
-            {
-                m_InputNodes = inputNodes,
-                m_Output = data
-            };
-            job.Schedule(inputNodes.Length, 8192).Complete();
-
-            dataHash.Append(data);
-
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-            {
-                fs.Write(data);
-            }
-
-            data.Dispose();
-        }
-        [BurstCompile]
-        struct CreateBoxDataJob : IJobParallelFor
-        {
-            [ReadOnly] public NativeArray<Box> m_InputBoxes;
-            [NativeDisableParallelForRestriction] public NativeArray<byte> m_Output;
-
-            public unsafe void Execute(int index)
-            {
-                byte* outputPtr = (byte*) m_Output.GetUnsafePtr() + index * 32;
-                Box b = m_InputBoxes[index];
-                *(float*) outputPtr = b.minn.x;
-                *(float*) (outputPtr + 4) = b.minn.y;
-                *(float*) (outputPtr + 8) = b.minn.z;
-                *(float*) (outputPtr + 12) = b.maxx.x;
-                *(float*) (outputPtr + 16) = b.maxx.y;
-                *(float*) (outputPtr + 20) = b.maxx.z;
-            }
-        }
-
-        void CreateBoxData(NativeArray<Box> inputBoxes, string filePath, ref Hash128 dataHash)
-        {
-            int dataLen = inputBoxes.Length * 32;
-            NativeArray<byte> data = new(dataLen, Allocator.TempJob);
-
-            CreateBoxDataJob job = new CreateBoxDataJob
-            {
-                m_InputBoxes = inputBoxes,
-                m_Output = data
-            };
-            job.Schedule(inputBoxes.Length, 8192).Complete();
-
-            dataHash.Append(data);
-
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-            {
-                fs.Write(data);
-            }
-
-            data.Dispose();
+            pos?.Dispose();
+            other?.Dispose();
+            color.Dispose();
+            shs.Dispose();
         }
     }
 }

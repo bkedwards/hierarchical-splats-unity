@@ -151,7 +151,7 @@ namespace GaussianSplatting.Runtime
 
         public static (int,int) CalcTextureSize(int splatCount)
         {
-            int width = kTextureWidth;
+            int width = kTextureWidth; //2048
             int height = math.max(1, (splatCount + width - 1) / width);
             // our swizzle tiles are 16x16, so make texture multiple of that height
             int blockHeight = 16;

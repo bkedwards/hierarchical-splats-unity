@@ -21,40 +21,31 @@ namespace HierarchicalSplatting.Runtime
         [SerializeField] int m_FormatVersion;
         [SerializeField] int m_SplatCount;
         [SerializeField] int m_ScaffoldCount;
-        [SerializeField] Hash128 m_DataHash;
 
         public int formatVersion => m_FormatVersion;
         public int splatCount => m_SplatCount;
         public int scaffoldCount => m_ScaffoldCount;
-        public Hash128 dataHash => m_DataHash;
-
         long cachedMemorySize = -1;
         [HideInInspector]
-        public Vector3[] Pos;
+        public uint[] posData;
         [HideInInspector]
-        public Vector3[] Scales;
+        public uint[] otherData;
         [HideInInspector]
-        public Vector4[] Rots;
+        public Vector4[] colorData;
         [HideInInspector]
-        public float[] Alphas;
+        public uint[] shData;
         [HideInInspector]
-        public SHs[] SHs;
+        public Node[] nodeData;
         [HideInInspector]
-        public Box[] Boxes;
+        public Box[] boxData;
         [HideInInspector]
-        public Node[] Nodes;
+        public uint[] allPos;
         [HideInInspector]
-        public Vector3[] SkyPos;
+        public uint[] allOther;
         [HideInInspector]
-        public Vector3[] SkyScale;
+        public Vector4[] allColor;
         [HideInInspector]
-        public Vector4[] SkyRot;
-        [HideInInspector]
-        public float[] SkyAlpha;
-        [HideInInspector]
-        public SHs[] SkySH;
-
-
+        public uint[] allSHs;
 
         public void Initialize(int splats, int skyboxnum)
         {
@@ -62,11 +53,6 @@ namespace HierarchicalSplatting.Runtime
             m_SplatCount = splats;
             m_ScaffoldCount = skyboxnum;
             m_FormatVersion = kCurrentVersion;
-        }
-
-        public void SetDataHash(Hash128 hash)
-        {
-            m_DataHash = hash;
         }
 
         public void SetHierarchyData(

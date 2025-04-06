@@ -678,7 +678,7 @@ namespace HierarchicalSplatting.Runtime
                     int src = node.start + j;
                     int dst = copied_gaussians + j;
 
-                    CopyPos[dst] = asset.Pos[src];
+                    CopyPos[dst] = asset.posData[src];
                     CopyRots[dst] = asset.Rots[src];
                     CopySHs[dst] = asset.SHs[src];
                     CopyAlphas[dst] = asset.Alphas[src];

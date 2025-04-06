@@ -94,20 +94,18 @@ namespace HierarchicalSplatting
     public class MemSet 
     {
         public GraphicsBuffer posBuff;
-        public GraphicsBuffer scalesBuff;
-        public GraphicsBuffer rotsBuff;
-        public GraphicsBuffer alphasBuff;
+        public GraphicsBuffer otherBuff
+        public GraphicsBuffer colorBuff;
         public GraphicsBuffer shsBuff;
         public GraphicsBuffer boxesBuff;
         public GraphicsBuffer nodesBuff;
 
         public MemSet(int size_pos, int size_nodes)
         {
-            posBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(float));
-            scalesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(float)); 
-            rotsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(float));
-            alphasBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, sizeof(float)); 
-            shsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 48 * sizeof(float)); 
+            posBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(uint));
+            otherBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(uint));
+            colorBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(uint));
+            shsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 48 * sizeof(uint)); 
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 8 * sizeof(float));
             nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 7 * sizeof(int)); 
         }
@@ -115,9 +113,8 @@ namespace HierarchicalSplatting
         public void Release()
         {
             posBuff.Dispose();
-            scalesBuff.Dispose();
-            rotsBuff.Dispose();
-            alphasBuff.Dispose();
+            otherBuff.Dispose();
+            colorBuff.Dispose();
             shsBuff.Dispose();
             boxesBuff.Dispose();
             nodesBuff.Dispose();

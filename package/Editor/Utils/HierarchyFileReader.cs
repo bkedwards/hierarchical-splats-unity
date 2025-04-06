@@ -15,7 +15,7 @@ using GaussianSplatting.Editor.Utils;
 
 namespace HierarchicalSplatting.Editor.Utils
 {
-    public class HierarchyFileReader {
+    public unsafe class HierarchyFileReader {
 
         public static int ReadFileHeader(string filename)
         {
@@ -38,13 +38,12 @@ namespace HierarchicalSplatting.Editor.Utils
 
         static void Load(
             string filename, 
-            out Vector3[] pos,  
-            out SHs[] shs, 
-            out float[] alphas, 
-            out Vector3[] scales, 
-            out Vector4[] rot, 
-            out Node[] nodes, 
-            out Box[] boxes, 
+            out NativeArray<uint> pos,  
+            out NativeArray<uint> shs, 
+            out NativeArray<uint> other,
+            out NativeArray<float4> color, 
+            out NativeArray<Node> nodes, 
+            out NativeArray<Box> boxes, 
             bool debug=false) 
         {
             NativeArray<byte> rawPosData;
@@ -66,69 +65,85 @@ namespace HierarchicalSplatting.Editor.Utils
 
             if (P >= 0) 
             {
-                rawPosData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
+
+                rawPosData = new NativeArray<byte>(P * 3 * sizeof(uint), Allocator.Temp);
                 fs.Read(rawPosData);
-                var VectorPosData = rawPosData.Reinterpret<Vector3>(1);
-                pos = new Vector3[P];
-                for (int i = 0; i < P; i++) {
-                    pos[i] = VectorPosData[i];
+                var uintPosData = rawPosData.Reinterpret<uint>(1);
+                pos = new NativeArray<uint>(P * 3, Allocator.Persistent);
+                for (int i = 0; i < P * 3; i++) {
+                    pos[i] = uintPosData[i];
                 }
+                rawPosData.Dispose();
                 
-                rawRotData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector4>(), Allocator.Persistent);
+                rawRotData = new NativeArray<byte>(P * sizeof(float4), Allocator.Temp);
                 fs.Read(rawRotData);
-                var VectorRotData = rawRotData.Reinterpret<Vector4>(1);
-                rot = new Vector4[P];
-                for (int i = 0; i < P; i++) {
-                    rot[i] = VectorRotData[i];
-                }
+                var float4RotData = rawRotData.Reinterpret<float4>(1);
 
-                rawScaleData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
+                rawScaleData = new NativeArray<byte>(P * sizeof(float3), Allocator.Temp);
                 fs.Read(rawScaleData);
-                var VectorScaleData = rawScaleData.Reinterpret<Vector3>(1);
-                scales = new Vector3[P];
-                for (int i = 0; i < P; i++) {
-                    scales[i] = new Vector3(
-                        Mathf.Exp(VectorScaleData[i].x),
-                        Mathf.Exp(VectorScaleData[i].y),
-                        Mathf.Exp(VectorScaleData[i].z)
-                    );
-                }
+                var float3ScaleData = rawScaleData.Reinterpret<float3>(1);
 
-                rawAlphaData = new NativeArray<byte>(P * sizeof(float), Allocator.Persistent);
-                fs.Read(rawAlphaData);
-                var FloatAlphaData = rawAlphaData.Reinterpret<float>(1);
-                alphas = new float[P];
-                for (int i = 0; i < P; i++) {
-                    alphas[i] = FloatAlphaData[i];
-                }
-
-                rawSHData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<SHs>(), Allocator.Persistent);
-                fs.Read(rawSHData);
-                var SHsData = rawSHData.Reinterpret<SHs>(1);
-                shs = new SHs[P];
+                other = new NativeArray<uint>(P * 4, Allocator.Persistent);
                 for (int i = 0; i < P; i++)
                 {
-                    shs[i] = SHsData[i];
+                    float4 rotQ = float4RotData[i].yzwx;
+                    float4 rotQQ = GaussianUtils.PackSmallest3Rotation(rotQ);
+                    uint enc = EncodeQuatToNorm10(rotQQ);
+                    other[i * 4] = enc;
+                    float3 scale = math.exp(float3ScaleData[i]);
+                    other[i * 4 + 1] = math.asuint(scale.x);
+                    other[i * 4 + 2] = math.asuint(scale.y);
+                    other[i * 4 + 3] = math.asuint(scale.z);
                 }
-                // To Do: reorder SHs / scale color data
+                rawRotData.Dispose();
+                rawScaleData.Dispose();
+
+                rawAlphaData = new NativeArray<byte>(P * sizeof(float), Allocator.Temp);
+                fs.Read(rawAlphaData);
+                var floatAlphaData = rawAlphaData.Reinterpret<float>(1);
+
+                rawSHData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<SHs>(), Allocator.Temp);
+                fs.Read(rawSHData);
+                var SHsData = rawSHData.Reinterpret<float>(1);
+                
+                color = new NativeArray<float4>(P, Allocator.Persistent);
+                shs = new NativeArray<uint>(P * 48, Allocator.Persistent);
+                for (int i = 0; i<P; i++)
+                {
+                    int baseIdx = i * 48;
+                    float3 rgb = new float3(SHsData[baseIdx], SHsData[baseIdx + 1], SHsData[baseIdx + 2]);
+                    color[i] = new float4(rgb * 0.2820948f + 0.5f, floatAlphaData[i]);
+
+                    for (int j = 3; j < 48; j++)
+                    {
+                        shs[baseIdx + (j - 3)] = math.asuint(SHsData[baseIdx + j]);
+                    }
+                    for (int j = 0; j < 3; j++)
+                    {
+                        shs[baseIdx + (j + 45)] = 0;
+                    }
+                }
+
+                rawAlphaData.Dispose();
+                rawSHData.Dispose();
 
                 fs.Read(buffer, 0, 4);
                 int N = BitConverter.ToInt32(buffer, 0);
 
-                rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Node>(), Allocator.Persistent);
+                rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Node>(), Allocator.Temp);
                 fs.Read(rawNodeData);
                 var NodeData = rawNodeData.Reinterpret<Node>(1);
-                nodes = new Node[N];
+                nodes = new NativeArray<Node>(N, Allocator.Persistent);
                 for (int i = 0; i < N; i++)
                 {
                     nodes[i] = NodeData[i];
                 }
 
-                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Box>(), Allocator.Persistent);
+                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<Box>(), Allocator.Temp);
                 fs.Read(rawBoxData);
                 var BoxData = rawBoxData.Reinterpret<Box>(1);
-                boxes = new Box[N];
-                for (int i = 0; i < P; i++)
+                boxes = new NativeArray<Box>(N, Allocator.Persistent);
+                for (int i = 0; i < N; i++)
                 {
                     boxes[i] = BoxData[i];
                 }
@@ -137,174 +152,99 @@ namespace HierarchicalSplatting.Editor.Utils
             else 
             {
                 P = -P;
-                int halfSize = UnsafeUtility.SizeOf<short>(); // 2 bytes
-                Debug.Log("halfSize: " + halfSize.ToString());
-                rawPosData = new NativeArray<byte>(P * UnsafeUtility.SizeOf<Vector3>(), Allocator.Persistent);
+                int halfSize = sizeof(short); // 2 bytes
+
+                rawPosData = new NativeArray<byte>(P * 3 * sizeof(uint), Allocator.Temp);
                 fs.Read(rawPosData);
-                var VectorPosData = rawPosData.Reinterpret<Vector3>(1);
-                pos = new Vector3[P];
-                for (int i = 0; i < P; i++) {
-                    pos[i] = VectorPosData[i];
+                var uintPosData = rawPosData.Reinterpret<uint>(1);
+                pos = new NativeArray<uint>(P * 3, Allocator.Persistent);
+                for (int i = 0; i < P * 3; i++) {
+                    pos[i] = uintPosData[i];
                 }
+                rawPosData.Dispose();
 
                 rawRotData = new NativeArray<byte>(P * 4 * halfSize, Allocator.Temp);
                 fs.Read(rawRotData);
                 NativeArray<short> halfrot = rawRotData.Reinterpret<short>(1);
-
                 
-                rot = new Vector4[P];
-                for (int i = 0; i< P; i++)
-                    rot[i] = new Vector4(
-                        HalfToFloat(halfrot[i*4]),
-                        HalfToFloat(halfrot[i*4 + 1]),
-                        HalfToFloat(halfrot[i*4 + 2]),
-                        HalfToFloat(halfrot[i*4 + 3])
-                    );
-                rawRotData.Dispose();
-
-                rawScaleData = new NativeArray<byte>(P * 3 * halfSize, Allocator.Persistent);
+                rawScaleData = new NativeArray<byte>(P * 3 * halfSize, Allocator.Temp);
                 fs.Read(rawScaleData);
                 NativeArray<short> halfscales = rawScaleData.Reinterpret<short>(1);
-                scales = new Vector3[P];
-                for (int i = 0; i< P; i++)
-                    scales[i] = new Vector3(
-                        Mathf.Exp(HalfToFloat(halfscales[i*3])),
-                        Mathf.Exp(HalfToFloat(halfscales[i*3 + 1])),
-                        Mathf.Exp(HalfToFloat(halfscales[i*3 + 2]))
-                    );
 
+                other = new NativeArray<uint>(P * 4, Allocator.Persistent);
+                for (int i = 0; i < P; i++)
+                {
+                    float4 rotQ = new float4(
+                        HalfToFloat(halfrot[i * 4 + 1]),
+                        HalfToFloat(halfrot[i * 4 + 2]),
+                        HalfToFloat(halfrot[i * 4 + 3]),
+                        HalfToFloat(halfrot[i * 4])
+                        );
+                    float4 rotQQ = GaussianUtils.PackSmallest3Rotation(rotQ);
+                    uint enc = EncodeQuatToNorm10(rotQQ);
+                    other[i * 4] = enc;
+                    float3 scale = new float3(
+                        HalfToFloat(halfscales[i*3]),
+                        HalfToFloat(halfscales[i*3 + 1]),
+                        HalfToFloat(halfscales[i*3 + 2])
+                    );
+                    float3 expScale = math.exp(scale);
+                    other[i * 4 + 1] = math.asuint(expScale.x);
+                    other[i * 4 + 2] = math.asuint(expScale.y);
+                    other[i * 4 + 3] = math.asuint(expScale.z);
+                }
+
+                rawRotData.Dispose();
                 rawScaleData.Dispose();
 
-                rawAlphaData = new NativeArray<byte>(P * halfSize, Allocator.Persistent);
+                rawAlphaData = new NativeArray<byte>(P * halfSize, Allocator.Temp);
                 fs.Read(rawAlphaData);
-                NativeArray<short> halfalphas = rawAlphaData.Reinterpret<short>(1);
-
-                alphas = new float[P];
-                for (int i = 0; i < P; i++)
-                    alphas[i] = HalfToFloat(halfalphas[i]);
-
-                rawAlphaData.Dispose();
-                
-                rawSHData = new NativeArray<byte>(P * 48 * halfSize, Allocator.Persistent);
+                NativeArray<short> halfAlphas = rawAlphaData.Reinterpret<short>(1);
+              
+                rawSHData = new NativeArray<byte>(P * 48 * halfSize, Allocator.Temp);
                 fs.Read(rawSHData);
                 NativeArray<short> halfSHs = rawSHData.Reinterpret<short>(1);
 
-                shs = new SHs[P];
-                for (int i = 0; i < P; i++) 
+                color = new NativeArray<float4>(P, Allocator.Persistent);
+                shs = new NativeArray<uint>(P * 48, Allocator.Persistent);
+                for (int i = 0; i<P; i++)
                 {
-                    SHs sh = new SHs();
-                    int baseIdx = i*48;
-                    sh.dc0 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx]),
-                            HalfToFloat(halfSHs[baseIdx + 1]),
-                            HalfToFloat(halfSHs[baseIdx + 2]));
-                    /*
-                    //OG READ IN (NO REORDERING) -- CONFIRMED TO WORK
-                    sh.sh1 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 3]),
-                            HalfToFloat(halfSHs[baseIdx + 4]),
-                            HalfToFloat(halfSHs[baseIdx + 5]));
-                    sh.sh2 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 6]),
-                            HalfToFloat(halfSHs[baseIdx + 7]),
-                            HalfToFloat(halfSHs[baseIdx + 8]));
-                    sh.sh3 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 9]),
-                            HalfToFloat(halfSHs[baseIdx + 10]),
-                            HalfToFloat(halfSHs[baseIdx + 11]));
-                    sh.sh4 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 12]),
-                            HalfToFloat(halfSHs[baseIdx + 13]),
-                            HalfToFloat(halfSHs[baseIdx + 14]));
-                    sh.sh5 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 15]),
-                            HalfToFloat(halfSHs[baseIdx + 16]),
-                            HalfToFloat(halfSHs[baseIdx + 17]));
-                    sh.sh6 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 18]),
-                            HalfToFloat(halfSHs[baseIdx + 19]),
-                            HalfToFloat(halfSHs[baseIdx + 20]));
-                    sh.sh7 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 21]),
-                            HalfToFloat(halfSHs[baseIdx + 22]),
-                            HalfToFloat(halfSHs[baseIdx + 23]));
-                    sh.sh8 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 24]),
-                            HalfToFloat(halfSHs[baseIdx + 25]),
-                            HalfToFloat(halfSHs[baseIdx + 26]));
-                    sh.sh9 = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 27]),
-                            HalfToFloat(halfSHs[baseIdx + 28]),
-                            HalfToFloat(halfSHs[baseIdx + 29]));
-                    sh.shA = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 30]),
-                            HalfToFloat(halfSHs[baseIdx + 31]),
-                            HalfToFloat(halfSHs[baseIdx + 32]));
-                    sh.shB = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 33]),
-                            HalfToFloat(halfSHs[baseIdx + 34]),
-                            HalfToFloat(halfSHs[baseIdx + 35]));
-                    sh.shC = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 36]),
-                            HalfToFloat(halfSHs[baseIdx + 37]),
-                            HalfToFloat(halfSHs[baseIdx + 38]));
-                    sh.shD = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 39]),
-                            HalfToFloat(halfSHs[baseIdx + 40]),
-                            HalfToFloat(halfSHs[baseIdx + 41]));
-                    sh.shE = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 42]),
-                            HalfToFloat(halfSHs[baseIdx + 43]),
-                            HalfToFloat(halfSHs[baseIdx + 44]));
-                    sh.shF = new Vector3(
-                            HalfToFloat(halfSHs[baseIdx + 45]),
-                            HalfToFloat(halfSHs[baseIdx + 46]),
-                            HalfToFloat(halfSHs[baseIdx + 47]));*/
+                    int baseIdx = i * 48;
+                    float c1 = HalfToFloat(halfSHs[baseIdx]);
+                    float c2 = HalfToFloat(halfSHs[baseIdx + 1]);
+                    float c3 = HalfToFloat(halfSHs[baseIdx + 2]);
+                    float a1 = HalfToFloat(halfAlphas[i]);
+                    float3 c = new float3(c1,c2,c3);
+                    c = c * 0.2820948f + 0.5f;
+                    color[i] = new float4(c, a1);
 
-                    Vector3[] reordered = new Vector3[15];
-                    for (int j = 0; j < 15; j++)
+                    for (int j = 3; j < 48; j++)
                     {
-                        float r = HalfToFloat(halfSHs[baseIdx + j + 3]);
-                        float g = HalfToFloat(halfSHs[baseIdx + j + 18]);
-                        float b = HalfToFloat(halfSHs[baseIdx + j + 33]);
-                        reordered[j] = new Vector3(r, g, b);
+                        shs[baseIdx + (j - 3)] = math.asuint(HalfToFloat(halfSHs[baseIdx + j]));
                     }
-
-                    // Assign reordered coefficients to fields sh1 - shF
-                    sh.sh1 = reordered[0];
-                    sh.sh2 = reordered[1];
-                    sh.sh3 = reordered[2];
-                    sh.sh4 = reordered[3];
-                    sh.sh5 = reordered[4];
-                    sh.sh6 = reordered[5];
-                    sh.sh7 = reordered[6];
-                    sh.sh8 = reordered[7];
-                    sh.sh9 = reordered[8];
-                    sh.shA = reordered[9];
-                    sh.shB = reordered[10];
-                    sh.shC = reordered[11];
-                    sh.shD = reordered[12];
-                    sh.shE = reordered[13];
-                    sh.shF = reordered[14];
-                    shs[i] = sh;
+                    for (int j = 0; j < 3; j++)
+                    {
+                        shs[baseIdx + (j + 45)] = math.asuint(0);
+                    }
 
                 }
 
+                rawAlphaData.Dispose();
                 rawSHData.Dispose();
 
                 fs.Read(buffer,0, 4);
                 int N = BitConverter.ToInt32(buffer, 0);
 
-                rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfNode>(), Allocator.Persistent);
+                rawNodeData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfNode>(), Allocator.Temp);
                 fs.Read(rawNodeData);
                 NativeArray<HalfNode> halfnodes = rawNodeData.Reinterpret<HalfNode>(1);
 
-                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfBox>(), Allocator.Persistent);
+                rawBoxData = new NativeArray<byte>(N * UnsafeUtility.SizeOf<HalfBox>(), Allocator.Temp);
                 fs.Read(rawBoxData);
                 NativeArray<HalfBox> halfboxes = rawBoxData.Reinterpret<HalfBox>(1);
 
-                boxes = new Box[N];
-                nodes = new Node[N];
+                nodes = new NativeArray<Node>(N, Allocator.Persistent);
+                boxes = new NativeArray<Box>(N, Allocator.Persistent);
 
                 for (int i = 0; i < N; i++) {
                     nodes[i] = new Node(halfnodes[i].dccc0,halfnodes[i].parent, halfnodes[i].start, halfnodes[i].dccc2,halfnodes[i].dccc3, halfnodes[i].start_children, halfnodes[i].dccc1);
@@ -316,68 +256,34 @@ namespace HierarchicalSplatting.Editor.Utils
 
                 rawBoxData.Dispose();
                 rawNodeData.Dispose();
-
-                if (debug)
-                {
-                    Debug.Log($"P: {P}");
-
-                    float s1 = rawPosData.Length / (1024f * 1024f * 1024f);
-                    float s2 = rawRotData.Length / (1024f * 1024f * 1024f);
-                    float s3 = rawScaleData.Length / (1024f * 1024f * 1024f);
-                    float s4 = rawAlphaData.Length / (1024f * 1024f * 1024f);
-                    float s5 = rawSHData.Length / (1024f * 1024f * 1024f);
-                    float s6 = rawNodeData.Length / (1024f * 1024f * 1024f);
-                    float s7 = rawBoxData.Length / (1024f * 1024f * 1024f);
-
-                    Debug.Log($"rawPosData.Length: {s1} GB");
-
-                    Debug.Log($"rawRotData.Length: {s2} GB");
-
-                    Debug.Log($"rawScaleData.Length: {s3} GB");
-
-                    Debug.Log($"rawAlphaData.Length: {s4} GB");
-
-                    Debug.Log($"rawSHData.Length: {s5} GB");
-
-                    Debug.Log($"rawNodeData.Length: {s6} GB");
-
-                    Debug.Log($"rawBoxData.Length: {s7} GB");
-
-                    Debug.Log($"Total Memory: {s1 + s2 + s3 + s4 + s5 + s6 + s7} GB");
-
-                    Debug.Log($"N: {N}");
-                }
             }
         }        
         
-        
         public static int LoadHierarchy(
             string filename,  
-            out Vector3[] pos,  
-            out SHs[] shs,  
-            out float[] alphas,  
-            out Vector3[] scales,  
-            out Vector4[] rot,  
-            out Node[] nodes,  
-            out Box[] boxes) 
+            out NativeArray<uint> pos,  
+            out NativeArray<uint> shs,  
+            out NativeArray<uint> other,  
+            out NativeArray<float4> color,  
+            out NativeArray<Node> nodes,  
+            out NativeArray<Box> boxes) 
         {
             
-            Load(filename, out pos, out shs, out alphas, out scales, out rot, out nodes, out boxes, false);
+            Load(filename, out pos, out shs, out other, out color, out nodes, out boxes, false);
             
             int P = pos.Length;
-
-            //LinearizeData(ref rot, ref scales, ref alphas);
 
             return P;
         }
         
+        
         public static int loadScaffold(
             string filename, 
-            out Vector3[] pos, 
-            out SHs[] shs, 
-            out float[] alphas, 
-            out Vector3[] scales, 
-            out Vector4[] rot) 
+            out NativeArray<uint> pos, 
+            out NativeArray<uint> shs, 
+            out NativeArray<float4> color,
+            out NativeArray<uint> other
+        ) 
         {
             
             string txtfile = filename + "/pc_info.txt";
@@ -425,106 +331,58 @@ namespace HierarchicalSplatting.Editor.Utils
                 }
             }
 
-            pos = new Vector3[count];
-            shs = new SHs[count];
-            alphas = new float[count];
-            scales = new Vector3[count];
-            rot = new Vector4[count];
+            pos = new NativeArray<uint>(count * 3, Allocator.Persistent);
+            other = new NativeArray<uint>(count * 4, Allocator.Persistent);
+            color = new NativeArray<float4>(count, Allocator.Persistent);
+            shs = new NativeArray<uint>(count * 48, Allocator.Persistent);
 
             for (int k = 0; k < count; k++)
             {
                 RichPoint p = points[k];
 
-                pos[k] = p.pos;
-                rot[k] = p.rot;
+                pos[k * 3] = math.asuint(p.pos.x);
+                pos[k * 3 + 1] = math.asuint(p.pos.y);
+                pos[k * 3 + 2] = math.asuint(p.pos.z);
 
-                Vector3 v = p.scale;
-                scales[k] = new Vector3(
-                    Mathf.Exp(v.x),
-                    Mathf.Exp(v.y),
-                    Mathf.Exp(v.z)
-                );
-                alphas[k] = GaussianUtils.Sigmoid(p.alpha);
+                float4 rotQ = (float4)(p.rot).yzwx;
+                float4 rotQQ = GaussianUtils.PackSmallest3Rotation(rotQ);
+                uint enc = EncodeQuatToNorm10(rotQQ);
+                other[k * 4] = enc;
+                float3 scale = math.exp((float3(p.scale)));
+                other[k * 4 + 1] = math.asuint(scale.x);
+                other[k * 4 + 2] = math.asuint(scale.y);
+                other[k * 4 + 3] = math.asuint(scale.z);
 
-                SHs sh = new SHs();
+                int baseIdx = k * 48;
 
-                sh.dc0 = p.sh0;
+                float3 c = (float3)(p.sh0);
+                float a = GaussianUtils.Sigmoid(p.alpha);
+                c = c * 0.2820948f + 0.5f;
+                color[k] = new float4(c, a);
 
-                sh.sh1 = p.sh1;
-                sh.sh2 = p.sh2;
-                sh.sh3 = p.sh3;
+                shs[baseIdx] = math.asuint(p.sh1.x);
+                shs[baseIdx + 1] = math.asuint(p.sh1.y);
+                shs[baseIdx + 2] = math.asuint(p.sh1.z);
+                shs[baseIdx + 3] = math.asuint(p.sh2.x);
+                shs[baseIdx + 4] = math.asuint(p.sh2.y);
+                shs[baseIdx + 5] = math.asuint(p.sh2.z);
+                shs[baseIdx + 6] = math.asuint(p.sh3.x);
+                shs[baseIdx + 7] = math.asuint(p.sh3.y);
+                shs[baseIdx + 8] = math.asuint(p.sh3.z);
 
-                sh.sh4 = Vector3.zero;
-                sh.sh5 = Vector3.zero;
-                sh.sh6 = Vector3.zero;
-                sh.sh7 = Vector3.zero;
-                sh.sh8 = Vector3.zero;
-                sh.sh9 = Vector3.zero;
-                sh.shA = Vector3.zero;
-                sh.shB = Vector3.zero;
-                sh.shC = Vector3.zero;
-                sh.shD = Vector3.zero;
-                sh.shE = Vector3.zero;
-                sh.shF = Vector3.zero;
-
-                /*
-                // OG READ-IN - NO REORDERING -- NOT CONFIRMED TO WORK YET
-                sh.sh1 = new Vector(p.sh1[0], p.sh2[0], p.sh3[0]);
-                sh.sh6 = new Vector(p.sh1[1], p.sh2[1], p.sh3[1]);
-                sh.shB = new Vector(p.sh1[2], p.sh2[2], p.sh3[2]);
-
-                sh.sh2 = Vector3.zero;
-                sh.sh3 = Vector3.zero;
-                sh.sh4 = Vector3.zero;
-                sh.sh5 = Vector3.zero;
-                sh.sh7 = Vector3.zero;
-                sh.sh8 = Vector3.zero;
-                sh.sh9 = Vector3.zero;
-                sh.shA = Vector3.zero;
-                sh.shC = Vector3.zero;
-                sh.shD = Vector3.zero;
-                sh.shE = Vector3.zero;
-                sh.shF = Vector3.zero;
-                */
-
-                shs[k] = sh;
+                for (int j = 9; j < 48; j++)
+                {
+                    shs[baseIdx + j] = 0;
+                }
             }
             rawPointData.Dispose();
             
-            return pos.Length;
+            return count;
         }
 
-        [BurstCompile]
-        struct LinearizeDataJob : IJobParallelFor
+        static uint EncodeQuatToNorm10(float4 v) // 32 bits: 10.10.10.2
         {
-            public NativeArray<Vector4> rot;
-            public NativeArray<Vector3> scales;
-            public NativeArray<float> alphas;
-            
-            public void Execute(int index)
-            {
-                //rot
-                var q = rot[index];
-                var qq = GaussianUtils.NormalizeSwizzleRotation(new float4(q.x, q.y, q.z, q.w));
-                qq = GaussianUtils.PackSmallest3Rotation(qq);
-                rot[index] = new Vector4(qq.x, qq.y, qq.z, qq.w);
-
-                // scale
-                scales[index] = GaussianUtils.LinearScale(scales[index]);
-                
-                //opacities
-                alphas[index] = GaussianUtils.Sigmoid(alphas[index]);
-
-            }
-        }
-
-        static void LinearizeData(ref NativeArray<Vector4> rot, ref NativeArray<Vector3> scales, ref NativeArray<float> alphas)
-        {
-            LinearizeDataJob job = new LinearizeDataJob();
-            job.rot = rot;
-            job.scales = scales;
-            job.alphas = alphas;
-            job.Schedule(rot.Length, 4096).Complete();
+            return (uint) (v.x * 1023.5f) | ((uint) (v.y * 1023.5f) << 10) | ((uint) (v.z * 1023.5f) << 20) | ((uint) (v.w * 3.5f) << 30);
         }
 
     }
