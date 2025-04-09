@@ -100,11 +100,11 @@ namespace HierarchicalSplatting
         public GraphicsBuffer boxesBuff;
         public GraphicsBuffer nodesBuff;
 
-        public MemSet(int size_pos, int size_nodes)
+        public MemSet(int size_pos, int size_nodes, int color_padding)
         {
             posBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 3 * sizeof(uint));
             otherBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(uint));
-            colorBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 4 * sizeof(uint));
+            colorBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, color_padding, 4 * sizeof(float));
             shsBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_pos, 48 * sizeof(uint)); 
             boxesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 8 * sizeof(float));
             nodesBuff = new GraphicsBuffer(GraphicsBuffer.Target.Structured, size_nodes, 7 * sizeof(int)); 

@@ -47,46 +47,13 @@ namespace HierarchicalSplatting.Runtime
         [HideInInspector]
         public uint[] allSHs;
 
+        public int padded;
         public void Initialize(int splats, int skyboxnum)
         {
             Debug.Log("Initialize");
             m_SplatCount = splats;
             m_ScaffoldCount = skyboxnum;
             m_FormatVersion = kCurrentVersion;
-        }
-
-        public void SetHierarchyData(
-            ref Vector3[] Pos,
-            ref Vector3[] Scales,
-            ref Vector4[] Rots,
-            ref float[] Alphas,
-            ref SHs[] SHs,
-            ref Box[] Boxes,
-            ref Node[] Nodes)
-        {
-            this.Pos = Pos;
-            this.Scales = Scales;
-            this.Rots = Rots;
-            this.Alphas = Alphas;
-            this.SHs = SHs;
-            this.Boxes = Boxes;
-            this.Nodes = Nodes;
-
-            Print(this.Pos, this.Rots, this.Scales, this.SHs, this.Alphas, this.Nodes, this.Boxes);
-        }
-
-        public void SetScaffoldData(
-            ref Vector3[] SkyPos,
-            ref Vector3[] SkyScale,
-            ref Vector4[] SkyRot,
-            ref float [] SkyAlpha,
-            ref SHs[] SkySH)
-        {
-            this.SkyPos = SkyPos;
-            this.SkyScale = SkyScale;
-            this.SkyRot = SkyRot;
-            this.SkyAlpha = SkyAlpha;
-            this.SkySH = SkySH;
         }
 
         public static (int,int) CalcTextureSize(int splatCount)

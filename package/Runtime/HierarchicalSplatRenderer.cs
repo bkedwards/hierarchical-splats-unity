@@ -22,7 +22,7 @@ namespace HierarchicalSplatting.Runtime
         internal static readonly ProfilerMarker s_ProfCompose = new(ProfilerCategory.Render, "HierarchicalSplat.Compose", MarkerFlags.SampleGPU);
         internal static readonly ProfilerMarker s_ProfCalcView = new(ProfilerCategory.Render, "HierarchicalSplat.CalcView", MarkerFlags.SampleGPU);
         // ReSharper restore MemberCanBePrivate.Global
-
+        readonly HashSet<Camera> m_CameraCommandBuffersDone = new();
         public static HierarchicalSplatRenderSystem instance => ms_Instance ??= new HierarchicalSplatRenderSystem();
         static HierarchicalSplatRenderSystem ms_Instance;
 
@@ -31,6 +31,8 @@ namespace HierarchicalSplatting.Runtime
         int frameCounter;
         bool cleanup;
         (int, int, MemSet) curr_res;
+
+        CommandBuffer m_CommandBuffer;
 
         public void RegisterSplat(HierarchicalSplatRenderer r)
         {
@@ -42,105 +44,74 @@ namespace HierarchicalSplatting.Runtime
             cleanup = false;
         }
 
-
-
         public void UnregisterSplat(HierarchicalSplatRenderer r)
         {
             hs = null;
             mat = null;
+            if (m_CamerCommandBuffersDone != null)
+            {
+                if (m_CommandBuffer != null)
+                {
+                    for each (var cam in m_CameraCommandBuffersDone)
+                    {
+                        if (cam)
+                            cam.RemoveCommandBuffer(CameraEvent.BeforeForwardAlpha, m_CommandBuffer);
+                    }
+                }
+            }
+            m_CommandBuffer?.Dispose();
+            m_CommandBUffer = null;
             Camera.onPreCull -= OnPreCullCamera;
         }
 
-        // ReSharper disable once MemberCanBePrivate.Global - used by HDRP/URP features that are not always compiled
-        /*public bool GatherSplatsForCamera(Camera cam)
-        {
-            if (cam.cameraType == CameraType.Preview)
-                return false;
-            // gather all active & valid splat objects
-            m_ActiveSplats.Clear();
-            foreach (var kvp in m_Splats)
-            {
-                var hs = kvp.Key;
-                if (hs == null || !hs.isActiveAndEnabled || !hs.HasValidAsset)// || !hs.HasValidRenderSetup)
-                    continue;
-                m_ActiveSplats.Add((kvp.Key, kvp.Value));
-            }
-            if (m_ActiveSplats.Count == 0)
-                return false;
-
-            // sort them by order and depth from camera
-            var camTr = cam.transform;
-            m_ActiveSplats.Sort((a, b) =>
-            {
-                var orderA = a.Item1.m_RenderOrder;
-                var orderB = b.Item1.m_RenderOrder;
-                if (orderA != orderB)
-                    return orderB.CompareTo(orderA);
-                var trA = a.Item1.transform;
-                var trB = b.Item1.transform;
-                var posA = camTr.InverseTransformPoint(trA.position);
-                var posB = camTr.InverseTransformPoint(trB.position);
-                return posA.z.CompareTo(posB.z);
-            });
-            return true;
-        }*/
-
-        // ReSharper disable once MemberCanBePrivate.Global - used by HDRP/URP features that are not always compiled
-        /*public Material SortAndRenderSplats(Camera cam, CommandBuffer cmb)
+        public Material SortAndRenderSplats(Camera cam, CommandBuffer cmb)
         {
             Material matComposite = null;
-            foreach (var kvp in m_ActiveSplats)
-            {
-                var hs = kvp.Item1;
-                hs.EnsureMaterials();
-                matComposite = hs.m_MatComposite;
-                var mpb = kvp.Item2;
+            hs.EnsureMaterials();
+            matComposite = hs.m_MatComposite;
+            var mpb = mat;
 
-                // sort
-                var matrix = hs.transform.localToWorldMatrix;
-                if (hs.m_FrameCounter % hs.m_SortNthFrame == 0)
-                    hs.SortPoints(cmb, cam, matrix);
-                ++hs.m_FrameCounter;
+            // sort
+            var matrix = hs.transform.localToWorldMatrix;
+            if (frameCounter == 1 || frameCounter %2 == 0)
+                hs.SortPoints(cmb, cam, matrix); 
 
-                // cache view
-                kvp.Item2.Clear();
-                Material displayMat = hs.m_MatSplats;
-                if (displayMat == null)
-                    continue;
+            // cache view
+            mat.Clear();
+            Material displayMat = hs.m_MatSplats;
 
-                hs.SetAssetDataOnMaterial(mpb);
-                mpb.SetBuffer(HierarchicalSplatRenderer.Props.SplatChunks, hs.m_GpuChunks);
+            hs.SetAssetDataOnMaterial(mpb);
+            mpb.SetBuffer(HierarchicalSplatRenderer.Props.SplatChunks, hs.m_GpuChunks);
 
-                mpb.SetBuffer(HierarchicalSplatRenderer.Props.SplatViewData, hs.m_GpuView);
+            mpb.SetBuffer(HierarchicalSplatRenderer.Props.SplatViewData, hs.m_GpuView);
 
-                mpb.SetBuffer(HierarchicalSplatRenderer.Props.OrderBuffer, hs.m_GpuSortKeys);
-                mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatScale, hs.m_SplatScale);
-                mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatOpacityScale, hs.m_OpacityScale);
-                mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatSize, hs.m_PointDisplaySize);
-                mpb.SetInteger(HierarchicalSplatRenderer.Props.SHOrder, hs.m_SHOrder);
-                mpb.SetInteger(HierarchicalSplatRenderer.Props.SHOnly, hs.m_SHOnly ? 1 : 0);
-                mpb.SetInteger(HierarchicalSplatRenderer.Props.DisplayIndex, 0);
-                mpb.SetInteger(HierarchicalSplatRenderer.Props.DisplayChunks, 0);
+            mpb.SetBuffer(HierarchicalSplatRenderer.Props.OrderBuffer, hs.m_GpuSortKeys);
+            mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatScale, hs.m_SplatScale);
+            mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatOpacityScale, hs.m_OpacityScale);
+            mpb.SetFloat(HierarchicalSplatRenderer.Props.SplatSize, hs.m_PointDisplaySize);
+            mpb.SetInteger(HierarchicalSplatRenderer.Props.SHOrder, hs.m_SHOrder);
+            mpb.SetInteger(HierarchicalSplatRenderer.Props.SHOnly, hs.m_SHOnly ? 1 : 0);
+            mpb.SetInteger(HierarchicalSplatRenderer.Props.DisplayIndex, 0);
+            mpb.SetInteger(HierarchicalSplatRenderer.Props.DisplayChunks, 0);
 
-                cmb.BeginSample(s_ProfCalcView);
-                hs.CalcViewData(cmb, cam);
-                cmb.EndSample(s_ProfCalcView);
+            cmb.BeginSample(s_ProfCalcView);
+            hs.CalcViewData(cmb, cam);   
+            cmb.EndSample(s_ProfCalcView);
 
-                // draw
-                int indexCount = 6;
-                int instanceCount = hs.splatCount;
-                MeshTopology topology = MeshTopology.Triangles;
+            // draw
+            int indexCount = 6;
+            int instanceCount = hs.splatCount;
+            MeshTopology topology = MeshTopology.Triangles;
 
-                cmb.BeginSample(s_ProfDraw);
-                cmb.DrawProcedural(hs.m_GpuIndexBuffer, matrix, displayMat, 0, topology, indexCount, instanceCount, mpb);
-                cmb.EndSample(s_ProfDraw);
-            }
+            cmb.BeginSample(s_ProfDraw);
+            cmb.DrawProcedural(hs.m_GpuIndexBuffer, matrix, displayMat, 0, topology, indexCount, instanceCount, mpb);
+            cmb.EndSample(s_ProfDraw);
             return matComposite;
-        }*/
+        }
 
         // ReSharper disable once MemberCanBePrivate.Global - used by HDRP/URP features that are not always compiled
         // ReSharper disable once UnusedMethodReturnValue.Global - used by HDRP/URP features that are not always compiled
-        /*public CommandBuffer InitialClearCmdBuffer(Camera cam)
+        public CommandBuffer InitialClearCmdBuffer(Camera cam)
         {
             m_CommandBuffer ??= new CommandBuffer {name = "RenderHierarchicalSplats"};
             if (GraphicsSettings.currentRenderPipeline == null && cam != null && !m_CameraCommandBuffersDone.Contains(cam))
@@ -152,11 +123,11 @@ namespace HierarchicalSplatting.Runtime
             // get render target for all splats
             m_CommandBuffer.Clear();
             return m_CommandBuffer;
-        }*/
+        }
 
-        /*void OnPreCullCamera(Camera cam)
+        void OnPreCullCamera(Camera cam)
         {
-            if (!GatherSplatsForCamera(cam))
+            if (!hs.resourcesAreSetUp || !hs.HasValidAsset)
                 return;
 
             InitialClearCmdBuffer(cam);
@@ -164,30 +135,11 @@ namespace HierarchicalSplatting.Runtime
             m_CommandBuffer.GetTemporaryRT(HierarchicalSplatRenderer.Props.GaussianSplatRT, -1, -1, 0, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat);
             m_CommandBuffer.SetRenderTarget(HierarchicalSplatRenderer.Props.GaussianSplatRT, BuiltinRenderTextureType.CurrentActive);
             m_CommandBuffer.ClearRenderTarget(RTClearFlags.Color, new Color(0, 0, 0, 0), 0, 0);
-
-            // We only need this to determine whether we're rendering into backbuffer or not. However, detection this
-            // way only works in BiRP so only do it here.
             m_CommandBuffer.SetGlobalTexture(HierarchicalSplatRenderer.Props.CameraTargetTexture, BuiltinRenderTextureType.CameraTarget);
 
-            // add sorting, view calc and drawing commands for each splat object
-            Material matComposite = SortAndRenderSplats(cam, m_CommandBuffer);
-
-            // compose
-            m_CommandBuffer.BeginSample(s_ProfCompose);
-            m_CommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-            m_CommandBuffer.DrawProcedural(Matrix4x4.identity, matComposite, 0, MeshTopology.Triangles, 3, 1);
-            m_CommandBuffer.EndSample(s_ProfCompose);
-            m_CommandBuffer.ReleaseTemporaryRT(HierarchicalSplatRenderer.Props.GaussianSplatRT);
-        }*/
-        void OnPreCullCamera(Camera cam)
-        {
-            if (!hs.resourcesAreSetUp || !hs.HasValidAsset)
-                return;
-
             frameCounter++;   
-            Debug.Log("frame " + frameCounter);
 
-            hs.CalcViewData(cam);
+            hs.SetViewpoint(cam);
 
             cleanup |= frameCounter % 10 == 0;
             if (frameCounter == 1 || frameCounter % 2 == 0)
@@ -196,12 +148,9 @@ namespace HierarchicalSplatting.Runtime
                 if (frameCounter == 1)
                    curr_res = hs.CreateHierarchicalCut(false);
 
-
-
                 (hs.currSet, hs.otherSet) = (hs.otherSet, hs.currSet);
+
                 int num_get_children = curr_res.Item1;
-                if (frameCounter < 10)
-                    Debug.Log("num_get_children: " + num_get_children);
                 if (curr_res.Item3 == hs.otherMem)
                     (hs.otherMem, hs.currMem) = (hs.currMem, hs.otherMem);
 
@@ -214,18 +163,18 @@ namespace HierarchicalSplatting.Runtime
             }
 
             hs.tau2Limit(cam);
-            /*if (frameCounter < 50)
-            {
-                Debug.Log("tau: " + hs.tau);
-                Debug.Log("num_active_nodes: " + 1);
-                Debug.Log("num_active_nodes_gpu: " + hs.num_active_nodes_gpu);
-                Debug.Log("sizeLimit: " + hs.sizeLimit);
-                Debug.Log("to_render: " + hs.currSet.toRender);
-                Debug.Log("skyboxnum: " + 100000);
-
-            }*/
             hs.DispatchComputeTsIndexed(1024);
-            //hs.forward();*/
+
+            hs.CreateRenderBuffers();
+
+            // add sorting, view calc and drawing commands for each splat object
+            Material matComposite = SortAndRenderSplats(cam, m_CommandBuffer);
+
+            m_CommandBuffer.BeginSample(s_ProfCompose);
+            m_CommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+            m_CommandBuffer.DrawProcedural(Matrix4x4.identity, matComposite, 0, MeshTopology.Triangles, 3, 1);
+            m_CommandBuffer.EndSample(s_ProfCompose);
+            m_CommandBuffer.ReleaseTemporaryRT(HierarchicalSplatRenderer.Props.GaussianSplatRT);
         }
     
     }
@@ -246,20 +195,22 @@ namespace HierarchicalSplatting.Runtime
         [Range(1,30)] [Tooltip("Sort splats only every N frames")]
         public int m_SortNthFrame = 1;
         [Range(1.00f, 20.0f)] [Tooltip("Granularity threshold for Node inclusion")]
+
+        public int m_RenderMode = 0;
+        [Range(1.0f,15.0f)] public float m_PointDisplaySize = 3.0f;
         [SerializeField] public float tau = 9.0f;
         public float sizeLimit = 0.03f;
         public Shader m_ShaderSplats;
         public Shader m_ShaderComposite;
         [Tooltip("Gaussian splatting compute shader")]
         public ComputeShader m_CSSplatUtilities;
-        [Tooltip("Cut selection compute shader")]
+        [Tooltip("Hierarchy Cut selection compute shader")]
         public ComputeShader m_CSHierarchicalCut;
-
-        public Vector3[] CopyPos;
-        public Vector3[] CopyScales;
-        public Vector4[] CopyRots;
-        public float[] CopyAlphas;
-        public SHs[] CopySHs;
+        
+        public uint[] CopyPos;
+        public uint[] CopyOther;
+        public Vector4[] CopyColor;
+        public uint[] CopySHs;
         public Box[] CopyBoxes;
         public Node[] CopyNodes;
 
@@ -269,13 +220,16 @@ namespace HierarchicalSplatting.Runtime
         int num_need_children;
         public int num_active_nodes_gpu;
         int nodes_offset = 0;
-
         int global_node_count = 0;
         int gaussians_offset = 0;
         int skyboxoffset;
-        Vector4 cam_pos;
-        Vector4 cam_pos_old;
-        Vector3 m_ZDirection;
+        Vector4 camPos;
+        Vector4 camPosOld;
+
+        Matrix4x4 matView;
+        Matrix4x4 matO2W;
+        Matrix4x4 matW2O;
+        Vector4 screenPar
 
         public LightSet currSet;
         public LightSet otherSet;
@@ -385,36 +339,28 @@ namespace HierarchicalSplatting.Runtime
             m_Asset.splatCount > 0 &&
             m_Asset.scaffoldCount > 0 && 
             m_Asset.formatVersion == HierarchicalSplatAsset.kCurrentVersion &&
-            m_Asset.Pos != null &&
-            m_Asset.Scales != null &&
-            m_Asset.Rots != null &&
-            m_Asset.Alphas != null &&
-            m_Asset.SHs != null &&
-            m_Asset.Nodes != null &&
-            m_Asset.Boxes != null;
+            m_Asset.posData != null &&
+            m_Asset.otherData != null &&
+            m_Asset.colorData != null &&
+            m_Asset.shData != null &&
+            m_Asset.nodeData != null &&
+            m_Asset.boxData != null &&
+            m_Asset.allPos != null &&
+            m_Asset.allOther != null &&
+            m_Asset.allColor != null &&
+            m_Asset.allSHs != null;
 
         //public bool HasValidRenderSetup => m_GpuPosData != null && m_GpuOtherData != null;
         const int kGpuViewDataSize = 40;
 
         void CreateResourcesForAsset()
         {
-
-            //Print(m_Asset.SkyPos, m_Asset.SkyRot, m_Asset.SkyScale, m_Asset.SkySH, m_Asset.SkyAlpha, default, default);
+            if (!HasValidAsset)
+                return;
 
             
-            Debug.Log("CreateResourcesForAsset");
-            if (!HasValidAsset)
-                Debug.Log("Something wrong: " + HasValidAsset);
-                Debug.Log("asset: " + (m_Asset != null));
-                Debug.Log("Pos: " + (m_Asset.Pos != null));
-                Debug.Log("scales: " + (m_Asset.Scales != null));
-                Debug.Log("rots: " + (m_Asset.Rots != null));
-                Debug.Log("alphas: " + (m_Asset.Alphas != null));
-                Debug.Log("shs: " + (m_Asset.SHs != null));
-                Debug.Log("nodes: " + (m_Asset.Nodes != null));
-                Debug.Log("boxes: " + (m_Asset.Boxes != null));
+            m_SplatCount = asset.splatCount;
 
-            //Calculate GAUSS_MEMLIMIT and ALLGAUSS
             long budget = 16000L;
             GAUSS_MEMLIMIT = (int)((budget * 1000000L - (484L * asset.scaffoldCount + 168L)) / 681L);
             if (GAUSS_MEMLIMIT < 0)
@@ -424,8 +370,6 @@ namespace HierarchicalSplatting.Runtime
             GAUSS_MEMLIMIT = asset.splatCount < GAUSS_MEMLIMIT ? asset.splatCount : GAUSS_MEMLIMIT;
             Debug.Log("GAUSS_MEMLIMIT" + GAUSS_MEMLIMIT.ToString());
 
-            //GAUSS_MEMLIMIT = 10,387,668
-            //skyboxoffset = 100,000
             skyboxoffset = asset.scaffoldCount;
 
             ALLGAUSS = (GAUSS_MEMLIMIT + asset.scaffoldCount);
@@ -434,14 +378,21 @@ namespace HierarchicalSplatting.Runtime
             currSet = new LightSet(GAUSS_MEMLIMIT);
             otherSet = new LightSet(GAUSS_MEMLIMIT);
 
-            currMem = new MemSet(ALLGAUSS, GAUSS_MEMLIMIT);
-            otherMem = new MemSet(ALLGAUSS, GAUSS_MEMLIMIT);
+            currMem = new MemSet(ALLGAUSS, GAUSS_MEMLIMIT, asset.padded);
+            currMem.posBuff.SetData(asset.AllPos, 0, 0, asset.AllPos.Length);
+            currMem.otherBuff.SetData(asset.AllOther, 0, 0, asset.AllOther.Length);
+            currMem.colorBuff.SetData(asset.AllColor, 0, 0, asset.AllColor.Length);
+            currMem.shsBuff.SetData(asset.AllSHs, 0, 0, asset.AllSHs.Length);
+            otherMem = new MemSet(ALLGAUSS, GAUSS_MEMLIMIT, asset,padded);
+            otherMem.posBuff.SetData(asset.AllPos, 0, 0, asset.AllPos.Length);
+            otherMem.otherBuff.SetData(asset.AllOther, 0, 0, asset.AllOther.Length);
+            otherMem.colorBuff.SetData(asset.AllColor, 0, 0, asset.AllColor.Length);
+            otherMem.shsBuff.SetData(asset.AllSHs, 0, 0, asset.AllSHs.Length);
 
-            CopyPos = new Vector3[GAUSS_MEMLIMIT];
-            CopyScales = new Vector3[GAUSS_MEMLIMIT];
-            CopyRots = new Vector4[GAUSS_MEMLIMIT];
-            CopyAlphas = new float[GAUSS_MEMLIMIT];
-            CopySHs = new SHs [GAUSS_MEMLIMIT];
+            CopyPos = new uint[GAUSS_MEMLIMIT * 3];
+            CopyOther = new uint[GAUSS_MEMLIMIT * 3];
+            CopyColor = new Vector4[GAUSS_MEMLIMIT];
+            CopySHs = new uint [GAUSS_MEMLIMIT * 48];
             CopyBoxes = new Box [GAUSS_MEMLIMIT];
             CopyNodes = new Node [GAUSS_MEMLIMIT];
             
@@ -478,40 +429,13 @@ namespace HierarchicalSplatting.Runtime
 
             InitGraphicsBuffers();
             SetGraphicsBuffers();
+            
+            
+            m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
+            UnsafeUtility.SizeOf<HierarchicalSplatAsset.ChunkInfo>()) {name = "HierarchicalChunkData"};
+            m_GpuChunksValid = false;
 
-
-            /*m_GpuPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.posData.dataSize / 4), 4) { name = "HierarchicalPosData" };
-            m_GpuPosData.SetData(asset.posData.GetData<uint>());
-            m_GpuOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, (int) (asset.otherData.dataSize / 4), 4) { name = "HierarchicalOtherData" };
-            m_GpuOtherData.SetData(asset.otherData.GetData<uint>());
-            m_GpuSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int) (asset.shData.dataSize / 4), 4) { name = "HierarchicalSHData" };
-            m_GpuSHData.SetData(asset.shData.GetData<uint>());
-            var (texWidth, texHeight) = HierarchicalSplatAsset.CalcTextureSize(asset.splatCount);
-            var texFormat = HierarchicalSplatAsset.ColorFormatToGraphics(asset.colorFormat);
-            var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate)   { name = "HierarchicalColorData" };
-
-            tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
-            tex.Apply(false, true);
-            m_GpuColorData = tex;
-            if (asset.chunkData != null && asset.chunkData.dataSize != 0)
-            {
-                m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                    (int) (asset.chunkData.dataSize / UnsafeUtility.SizeOf<HierarchicalSplatAsset.ChunkInfo>()),
-                    UnsafeUtility.SizeOf<HierarchicalSplatAsset.ChunkInfo>()) {name = "HierarchicalChunkData"};
-                m_GpuChunks.SetData(asset.chunkData.GetData<HierarchicalSplatAsset.ChunkInfo>());
-                m_GpuChunksValid = true;
-            }
-            else
-            {
-                // just a dummy chunk buffer
-                m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
-                    UnsafeUtility.SizeOf<HierarchicalSplatAsset.ChunkInfo>()) {name = "HierarchicalChunkData"};
-                m_GpuChunksValid = false;
-            }
-
-            m_GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_Asset.splatCount, kGpuViewDataSize);
             m_GpuIndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, 36, 2);
-            // cube indices, most often we use only the first quad
             m_GpuIndexBuffer.SetData(new ushort[]
             {
                 0, 1, 2, 1, 3, 2,
@@ -521,9 +445,29 @@ namespace HierarchicalSplatting.Runtime
                 0, 4, 1, 4, 5, 1,
                 2, 3, 6, 3, 7, 6
             });
-            */
+        }
 
-            //InitSortBuffers(splatCount);
+        public void CreateRenderBuffers()
+        {
+            
+            m_GpuPosData = currMem.posBuff; // I might need to make copies of these buffers instead.
+            m_GpuOtherData = currMem.otherBuff;
+            m_GpuSHData = currMem.shsBuff;
+            
+            int toRender = currSet.toRender + asset.scaffoldCount;
+            var (texWidth, texHeight) = HierarchicalSplatAsset.CalcTextureSize(toRender);
+            var texFormat = GraphicsFormat.R32G32B32A32_SFloat;
+            var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate)   { name = "HierarchicalColorData" };
+
+            float4[] colorArr = new float4[toRender];
+            currMem.colorBuff.GetData(colorArr, 0);
+            tex.SetPixelData(colorArr, 0);
+            tex.Apply(false, true);
+            m_GpuColorData = tex;
+
+            m_GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, toRender, kGpuViewDataSize);
+
+            InitSortBuffers(toRender);
         }
 
         void Print(
@@ -678,11 +622,28 @@ namespace HierarchicalSplatting.Runtime
                     int src = node.start + j;
                     int dst = copied_gaussians + j;
 
-                    CopyPos[dst] = asset.posData[src];
-                    CopyRots[dst] = asset.Rots[src];
-                    CopySHs[dst] = asset.SHs[src];
-                    CopyAlphas[dst] = asset.Alphas[src];
-                    CopyScales[dst] = asset.Scales[src];
+
+
+                    int src = node.start + j;
+                    int dst = copied_gaussians + j;
+
+                    // Pos: 3 uints per splat
+                    CopyPos[dst * 3 + 0] = asset.posData[src * 3 + 0];
+                    CopyPos[dst * 3 + 1] = asset.posData[src * 3 + 1];
+                    CopyPos[dst * 3 + 2] = asset.posData[src * 3 + 2];
+
+                    // Other: 4 uints per splat
+                    CopyOther[dst * 4 + 0] = asset.otherData[src * 4 + 0];
+                    CopyOther[dst * 4 + 1] = asset.otherData[src * 4 + 1];
+                    CopyOther[dst * 4 + 2] = asset.otherData[src * 4 + 2];
+                    CopyOther[dst * 4 + 3] = asset.otherData[src * 4 + 3];
+
+                    // Color: 1 Vector4 per splat
+                    CopyColor[dst] = asset.colorData[src];
+
+                    // SH: 48 uints per splat
+                    for (int k = 0; k < 48; k++)
+                        CopySHs[dst * 48 + k] = asset.shData[src * 48 + k];
                 }
                 node.start_children = -1;
                 node.start = gaussians_offset + copied_gaussians;
@@ -696,12 +657,12 @@ namespace HierarchicalSplatting.Runtime
                 copied_gaussians += count;
             }
 
+            int totalOffset = gaussians_offset + asset.scaffoldCount;
             //Insert Set Data Statements Here
-            useMem.posBuff.SetData(CopyPos, 0, gaussians_offset, gaussian_copy_count);
-            useMem.rotsBuff.SetData(CopyRots, 0, gaussians_offset, gaussian_copy_count);
-            useMem.scalesBuff.SetData(CopyScales, 0, gaussians_offset, gaussian_copy_count);
-            useMem.alphasBuff.SetData(CopyAlphas, 0, gaussians_offset, gaussian_copy_count);
-            useMem.shsBuff.SetData(CopySHs, 0, gaussians_offset, gaussian_copy_count);
+            useMem.posBuff.SetData(CopyPos, 0, totalOffset * 3, gaussian_copy_count * 3);
+            useMem.otherBuff.SetData(CopyOther, 0, totalOffset * 4, gaussian_copy_count * 4);
+            useMem.colorBuff.SetData(CopyColor, 0, totalOffset, gaussian_copy_count);
+            useMem.shBuff.SetData(CopySHs, 0, totalOffset * 48, gaussian_copy_count * 48);
             useMem.nodesBuff.SetData(CopyNodes, 0, nodes_offset, node_copy_count);
             useMem.boxesBuff.SetData(CopyBoxes, 0, nodes_offset, node_copy_count);
 
@@ -992,7 +953,7 @@ namespace HierarchicalSplatting.Runtime
             m_CSHierarchicalCut.SetBuffer(3, "parent_indices", otherSet.parentIndicesBuff);
             m_CSHierarchicalCut.SetBuffer(3, "nodes_of_render_indices", otherSet.nodesOfRenderIndicesBuff);
 
-            m_CSHierarchicalCut.SetVector("viewpoint", cam_pos);
+            m_CSHierarchicalCut.SetVector("viewpoint", camPos);
             m_CSHierarchicalCut.SetFloat("target_size", sizeLimit);
 
             int num_node_blocks = (num_active_nodes_gpu + 255) / 256;
@@ -1115,7 +1076,7 @@ namespace HierarchicalSplatting.Runtime
             Debug.Log("nodes_of_render_indices: " + ans);*/
         }
 
-        /*void InitSortBuffers(int count)
+        void InitSortBuffers(int count)
         {
             m_GpuSortDistances?.Dispose();
             m_GpuSortKeys?.Dispose();
@@ -1137,7 +1098,7 @@ namespace HierarchicalSplatting.Runtime
             m_SorterArgs.count = (uint)count;
             if (m_Sorter.Valid)
                 m_SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
-        }*/
+        }
 
         public bool resourcesAreSetUp => m_ShaderSplats != null 
             && m_ShaderComposite != null 
@@ -1181,7 +1142,7 @@ namespace HierarchicalSplatting.Runtime
             //CreateResourcesForAsset();
         }
 
-        /*void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel)
+        void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel)
         {
             ComputeShader cs = m_CSSplatUtilities;
             int kernelIndex = (int) kernel;
@@ -1190,38 +1151,36 @@ namespace HierarchicalSplatting.Runtime
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_GpuOtherData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSH, m_GpuSHData);
             cmb.SetComputeTextureParam(cs, kernelIndex, Props.SplatColor, m_GpuColorData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSelectedBits, m_GpuEditSelected ?? m_GpuPosData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuEditDeleted ?? m_GpuPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSelectedBits, m_GpuPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatViewData, m_GpuView);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.OrderBuffer, m_GpuSortKeys);
 
-            cmb.SetComputeIntParam(cs, Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
-            uint format = (uint)m_Asset.posFormat | ((uint)m_Asset.scaleFormat << 8) | ((uint)m_Asset.shFormat << 16);
-            cmb.SetComputeIntParam(cs, Props.SplatFormat, (int)format);
-            cmb.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
-            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmb.SetComputeIntParam(cs, Props.SplatBitsValid, 0);
+            cmb.SetComputeIntParam(cs, Props.SplatFormat, 0);
+            cmb.SetComputeIntParam(cs, Props.SplatCount, currSet.toRender);
+            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, 0);
 
-            UpdateCutoutsBuffer();
-            cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
+            NativeArray<GaussianCutout.ShaderData> data = new(1, Allocator.Temp);
+            m_GpuEditCutouts.SetData(data);
+            cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, 0);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
             
-        }*/
+        }
 
-        /*internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
+        internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
         {
             mat.SetBuffer(Props.SplatPos, m_GpuPosData);
             mat.SetBuffer(Props.SplatOther, m_GpuOtherData);
             mat.SetBuffer(Props.SplatSH, m_GpuSHData);
             mat.SetTexture(Props.SplatColor, m_GpuColorData);
-            mat.SetBuffer(Props.SplatSelectedBits, m_GpuEditSelected ?? m_GpuPosData);
-            mat.SetBuffer(Props.SplatDeletedBits, m_GpuEditDeleted ?? m_GpuPosData);
-            mat.SetInt(Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
-            uint format = (uint)m_Asset.posFormat | ((uint)m_Asset.scaleFormat << 8) | ((uint)m_Asset.shFormat << 16);
-            mat.SetInteger(Props.SplatFormat, (int)format);
-            mat.SetInteger(Props.SplatCount, m_SplatCount);
-            mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
-            
-        }*/
+            mat.SetBuffer(Props.SplatSelectedBits, m_GpuPosData);
+            mat.SetBuffer(Props.SplatDeletedBits, m_GpuPosData);
+            mat.SetInt(Props.SplatBitsValid, 0);
+            mat.SetInteger(Props.SplatFormat, 0);
+            mat.SetInteger(Props.SplatCount, currSet.toRender);
+            mat.SetInteger(Props.SplatChunkCount, 0);
+        }
 
         static void DisposeBuffer(ref GraphicsBuffer buf)
         {
@@ -1290,20 +1249,10 @@ namespace HierarchicalSplatting.Runtime
             DestroyImmediate(m_MatComposite);
         }
 
-        /*internal void CalcViewData(CommandBuffer cmb, Camera cam)
+        internal void CalcViewData(CommandBuffer cmb, Camera cam)
         {
             if (cam.cameraType == CameraType.Preview)
                 return;
-
-            var tr = transform;
-
-            Matrix4x4 matView = cam.worldToCameraMatrix;
-            Matrix4x4 matO2W = tr.localToWorldMatrix;
-            Matrix4x4 matW2O = tr.worldToLocalMatrix;
-            int screenW = cam.pixelWidth, screenH = cam.pixelHeight;
-            int eyeW = XRSettings.eyeTextureWidth, eyeH = XRSettings.eyeTextureHeight;
-            Vector4 screenPar = new Vector4(eyeW != 0 ? eyeW : screenW, eyeH != 0 ? eyeH : screenH, 0, 0);
-            Vector4 camPos = cam.transform.position;
 
             // calculate view dependent data for each splat
             SetAssetDataOnCS(cmb, KernelIndices.CalcViewData);
@@ -1321,8 +1270,8 @@ namespace HierarchicalSplatting.Runtime
 
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);
             cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_GpuView.count + (int)gsX - 1)/(int)gsX, 1, 1);
-        }*/
-        public void CalcViewData(Camera cam)
+        }
+        public void SetViewpoint(Camera cam)
         {
             if (cam.cameraType == CameraType.Preview)
                 return;
@@ -1330,25 +1279,17 @@ namespace HierarchicalSplatting.Runtime
             m_FrameCounter++;
             var tr = transform;
 
-            Matrix4x4 matView = cam.worldToCameraMatrix;
-            Matrix4x4 matO2W = tr.localToWorldMatrix;
-            Matrix4x4 matW2O = tr.worldToLocalMatrix;
+            matView = cam.worldToCameraMatrix;
+            matO2W = tr.localToWorldMatrix;
+            matW2O = tr.worldToLocalMatrix;
             int screenW = cam.pixelWidth, screenH = cam.pixelHeight;
             int eyeW = XRSettings.eyeTextureWidth, eyeH = XRSettings.eyeTextureHeight;
-            Vector4 screenPar = new Vector4(eyeW != 0 ? eyeW : screenW, eyeH != 0 ? eyeH : screenH, 0, 0);
-            Vector4 camPos = cam.transform.position;
-
-            cam_pos = new Vector4(3.27458f, -48.7878f, 3.3452f);
-
-            m_ZDirection = new Vector3(0.16184f, 0.818862f, -0.550702f);
-
-            if (m_FrameCounter <50) {
-                Debug.Log("zdir: " + m_ZDirection);
-                Debug.Log("cam_pos: " + cam_pos);
-            }
+            screenPar = new Vector4(eyeW != 0 ? eyeW : screenW, eyeH != 0 ? eyeH : screenH, 0, 0);
+            
+            camPos = cam.transform.position;
         }
 
-        /*internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
+        internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
         {
             if (cam.cameraType == CameraType.Preview)
                 return;
@@ -1364,10 +1305,10 @@ namespace HierarchicalSplatting.Runtime
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys, m_GpuSortKeys);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_GpuChunks);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_GpuPosData);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_Asset.posFormat);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, 0);
             cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SplatCount);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, currSet.toRender);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, 0);
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcDistances, out uint gsX, out _, out _);
             cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, (m_GpuSortDistances.count + (int)gsX - 1)/(int)gsX, 1, 1);
 
@@ -1375,7 +1316,7 @@ namespace HierarchicalSplatting.Runtime
             EnsureSorterAndRegister();
             m_Sorter.Dispatch(cmd, m_SorterArgs);
             cmd.EndSample(s_ProfSort);
-        }*/
+        }
 
         public void tau2Limit(Camera cam) 
         {
@@ -1400,7 +1341,6 @@ namespace HierarchicalSplatting.Runtime
                 m_PrevHash = curHash;
                 if (resourcesAreSetUp)
                 {
-                    Debug.Log("Inside Update()");
                     DisposeResourcesForAsset();
                     CreateResourcesForAsset();
                 }
@@ -1421,7 +1361,7 @@ namespace HierarchicalSplatting.Runtime
 
         }
 
-        /*void ClearGraphicsBuffer(GraphicsBuffer buf)
+        void ClearGraphicsBuffer(GraphicsBuffer buf)
         {
             m_CSSplatUtilities.SetBuffer((int)KernelIndices.ClearBuffer, Props.DstBuffer, buf);
             m_CSSplatUtilities.SetInt(Props.BufferSize, buf.count);
@@ -1436,7 +1376,7 @@ namespace HierarchicalSplatting.Runtime
             m_CSSplatUtilities.SetInt(Props.BufferSize, dst.count);
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.OrBuffers, out uint gsX, out _, out _);
             m_CSSplatUtilities.Dispatch((int)KernelIndices.OrBuffers, (int)((dst.count+gsX-1)/gsX), 1, 1);
-        }*/
+        }
 
         static float SortableUintToFloat(uint v)
         {
@@ -1444,7 +1384,7 @@ namespace HierarchicalSplatting.Runtime
             return math.asfloat(v ^ mask);
         }
 
-        /*public void UpdateEditCountsAndBounds()
+        public void UpdateEditCountsAndBounds()
         {
             if (m_GpuEditSelected == null)
             {
@@ -1483,6 +1423,7 @@ namespace HierarchicalSplatting.Runtime
 
         void UpdateCutoutsBuffer()
         {
+            m_GpuEditCutouts
             int bufferSize = m_Cutouts?.Length ?? 0;
             if (bufferSize == 0)
                 bufferSize = 1;
@@ -1492,7 +1433,7 @@ namespace HierarchicalSplatting.Runtime
                 m_GpuEditCutouts = new GraphicsBuffer(GraphicsBuffer.Target.Structured, bufferSize, UnsafeUtility.SizeOf<GaussianCutout.ShaderData>()) { name = "GaussianCutouts" };
             }
 
-            NativeArray<GaussianCutout.ShaderData> data = new(bufferSize, Allocator.Temp);
+            NativeArray<GaussianCutout.ShaderData> data = new(1, Allocator.Temp);
             if (m_Cutouts != null)
             {
                 var matrix = transform.localToWorldMatrix;
@@ -1550,37 +1491,6 @@ namespace HierarchicalSplatting.Runtime
             Graphics.CopyBuffer(m_GpuOtherData, m_GpuEditOtherMouseDown);
         }
 
-        public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam, bool subtract)
-        {
-            if (!EnsureEditingBuffers()) return;
-
-            Graphics.CopyBuffer(m_GpuEditSelectedMouseDown, m_GpuEditSelected);
-
-            var tr = transform;
-            Matrix4x4 matView = cam.worldToCameraMatrix;
-            Matrix4x4 matO2W = tr.localToWorldMatrix;
-            Matrix4x4 matW2O = tr.worldToLocalMatrix;
-            int screenW = cam.pixelWidth, screenH = cam.pixelHeight;
-            Vector4 screenPar = new Vector4(screenW, screenH, 0, 0);
-            Vector4 camPos = cam.transform.position;
-
-            using var cmb = new CommandBuffer { name = "SplatSelectionUpdate" };
-            SetAssetDataOnCS(cmb, KernelIndices.SelectionUpdate);
-
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, matView * matO2W);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, matO2W);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, matW2O);
-
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecScreenParams, screenPar);
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.VecWorldSpaceCameraPos, camPos);
-
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, "_SelectionRect", new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SelectionMode, subtract ? 0 : 1);
-
-            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_SplatCount);
-            UpdateEditCountsAndBounds();
-        }
-
         public void EditTranslateSelection(Vector3 localSpacePosDelta)
         {
             if (!EnsureEditingBuffers()) return;
@@ -1635,183 +1545,6 @@ namespace HierarchicalSplatting.Runtime
             editModified = true;
         }
 
-        public void EditDeleteSelected()
-        {
-            if (!EnsureEditingBuffers()) return;
-            UnionGraphicsBuffers(m_GpuEditDeleted, m_GpuEditSelected);
-            EditDeselectAll();
-            UpdateEditCountsAndBounds();
-            if (editDeletedSplats != 0)
-                editModified = true;
-        }
-
-        public void EditSelectAll()
-        {
-            if (!EnsureEditingBuffers()) return;
-            using var cmb = new CommandBuffer { name = "SplatSelectAll" };
-            SetAssetDataOnCS(cmb, KernelIndices.SelectAll);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.SelectAll, Props.DstBuffer, m_GpuEditSelected);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.BufferSize, m_GpuEditSelected.count);
-            DispatchUtilsAndExecute(cmb, KernelIndices.SelectAll, m_GpuEditSelected.count);
-            UpdateEditCountsAndBounds();
-        }
-
-        public void EditDeselectAll()
-        {
-            if (!EnsureEditingBuffers()) return;
-            ClearGraphicsBuffer(m_GpuEditSelected);
-            UpdateEditCountsAndBounds();
-        }
-
-        public void EditInvertSelection()
-        {
-            if (!EnsureEditingBuffers()) return;
-
-            using var cmb = new CommandBuffer { name = "SplatInvertSelection" };
-            SetAssetDataOnCS(cmb, KernelIndices.InvertSelection);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.InvertSelection, Props.DstBuffer, m_GpuEditSelected);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.BufferSize, m_GpuEditSelected.count);
-            DispatchUtilsAndExecute(cmb, KernelIndices.InvertSelection, m_GpuEditSelected.count);
-            UpdateEditCountsAndBounds();
-        }
-
-        public bool EditExportData(GraphicsBuffer dstData, bool bakeTransform)
-        {
-            if (!EnsureEditingBuffers()) return false;
-
-            int flags = 0;
-            var tr = transform;
-            Quaternion bakeRot = tr.localRotation;
-            Vector3 bakeScale = tr.localScale;
-
-            if (bakeTransform)
-                flags = 1;
-
-            using var cmb = new CommandBuffer { name = "SplatExportData" };
-            SetAssetDataOnCS(cmb, KernelIndices.ExportData);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, "_ExportTransformFlags", flags);
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, "_ExportTransformRotation", new Vector4(bakeRot.x, bakeRot.y, bakeRot.z, bakeRot.w));
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, "_ExportTransformScale", bakeScale);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, tr.localToWorldMatrix);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.ExportData, "_ExportBuffer", dstData);
-
-            DispatchUtilsAndExecute(cmb, KernelIndices.ExportData, m_SplatCount);
-            return true;
-        }
-
-        public void EditSetSplatCount(int newSplatCount)
-        {
-            if (newSplatCount <= 0 || newSplatCount > HierarchicalSplatAsset.kMaxSplats)
-            {
-                Debug.LogError($"Invalid new splat count: {newSplatCount}");
-                return;
-            }
-            if (newSplatCount == splatCount)
-                return;
-
-            int posStride = (int)(asset.posData.dataSize / asset.splatCount);
-            int otherStride = (int)(asset.otherData.dataSize / asset.splatCount);
-            int shStride = (int) (asset.shData.dataSize / asset.splatCount);
-
-            // create new GPU buffers
-            var newPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * posStride / 4, 4) { name = "GaussianPosData" };
-            var newOtherData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * otherStride / 4, 4) { name = "GaussianOtherData" };
-            var newSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, newSplatCount * shStride / 4, 4) { name = "GaussianSHData" };
-
-            // new texture is a RenderTexture so we can write to it from a compute shader
-            var (texWidth, texHeight) = HierarchicalSplatAsset.CalcTextureSize(newSplatCount);
-            var texFormat = HierarchicalSplatAsset.ColorFormatToGraphics(asset.colorFormat);
-            var newColorData = new RenderTexture(texWidth, texHeight, texFormat, GraphicsFormat.None) { name = "GaussianColorData", enableRandomWrite = true };
-            newColorData.Create();
-
-            // selected/deleted buffers
-            var selTarget = GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource | GraphicsBuffer.Target.CopyDestination;
-            var selSize = (newSplatCount + 31) / 32;
-            var newEditSelected = new GraphicsBuffer(selTarget, selSize, 4) {name = "HierarchicalSplatSelected"};
-            var newEditSelectedMouseDown = new GraphicsBuffer(selTarget, selSize, 4) {name = "HierarchicalSplatSelectedInit"};
-            var newEditDeleted = new GraphicsBuffer(selTarget, selSize, 4) {name = "HierarchicalSplatDeleted"};
-            ClearGraphicsBuffer(newEditSelected);
-            ClearGraphicsBuffer(newEditSelectedMouseDown);
-            ClearGraphicsBuffer(newEditDeleted);
-
-            var newGpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, newSplatCount, kGpuViewDataSize);
-            InitSortBuffers(newSplatCount);
-
-            // copy existing data over into new buffers
-            EditCopySplats(transform, newPosData, newOtherData, newSHData, newColorData, newEditDeleted, newSplatCount, 0, 0, m_SplatCount);
-
-            // use the new buffers and the new splat count
-            m_GpuPosData.Dispose();
-            m_GpuOtherData.Dispose();
-            m_GpuSHData.Dispose();
-            DestroyImmediate(m_GpuColorData);
-            m_GpuView.Dispose();
-
-            m_GpuEditSelected?.Dispose();
-            m_GpuEditSelectedMouseDown?.Dispose();
-            m_GpuEditDeleted?.Dispose();
-
-            m_GpuPosData = newPosData;
-            m_GpuOtherData = newOtherData;
-            m_GpuSHData = newSHData;
-            m_GpuColorData = newColorData;
-            m_GpuView = newGpuView;
-            m_GpuEditSelected = newEditSelected;
-            m_GpuEditSelectedMouseDown = newEditSelectedMouseDown;
-            m_GpuEditDeleted = newEditDeleted;
-
-            DisposeBuffer(ref m_GpuEditPosMouseDown);
-            DisposeBuffer(ref m_GpuEditOtherMouseDown);
-
-            m_SplatCount = newSplatCount;
-            editModified = true;
-            
-        }
-
-        public void EditCopySplatsInto(HierarchicalSplatRenderer dst, int copySrcStartIndex, int copyDstStartIndex, int copyCount)
-        {
-            EditCopySplats(
-                dst.transform,
-                dst.m_GpuPosData, dst.m_GpuOtherData, dst.m_GpuSHData, dst.m_GpuColorData, dst.m_GpuEditDeleted,
-                dst.splatCount,
-                copySrcStartIndex, copyDstStartIndex, copyCount);
-            dst.editModified = true;
-        }
-
-        public void EditCopySplats(
-            Transform dstTransform,
-            GraphicsBuffer dstPos, GraphicsBuffer dstOther, GraphicsBuffer dstSH, Texture dstColor,
-            GraphicsBuffer dstEditDeleted,
-            int dstSize,
-            int copySrcStartIndex, int copyDstStartIndex, int copyCount)
-        {
-            if (!EnsureEditingBuffers()) return;
-
-            Matrix4x4 copyMatrix = dstTransform.worldToLocalMatrix * transform.localToWorldMatrix;
-            Quaternion copyRot = copyMatrix.rotation;
-            Vector3 copyScale = copyMatrix.lossyScale;
-
-            using var cmb = new CommandBuffer { name = "SplatCopy" };
-            SetAssetDataOnCS(cmb, KernelIndices.CopySplats);
-
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CopySplats, "_CopyDstPos", dstPos);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CopySplats, "_CopyDstOther", dstOther);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CopySplats, "_CopyDstSH", dstSH);
-            cmb.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CopySplats, "_CopyDstColor", dstColor);
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CopySplats, "_CopyDstEditDeleted", dstEditDeleted);
-
-            cmb.SetComputeIntParam(m_CSSplatUtilities, "_CopyDstSize", dstSize);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, "_CopySrcStartIndex", copySrcStartIndex);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, "_CopyDstStartIndex", copyDstStartIndex);
-            cmb.SetComputeIntParam(m_CSSplatUtilities, "_CopyCount", copyCount);
-
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, "_CopyTransformRotation", new Vector4(copyRot.x, copyRot.y, copyRot.z, copyRot.w));
-            cmb.SetComputeVectorParam(m_CSSplatUtilities, "_CopyTransformScale", copyScale);
-            cmb.SetComputeMatrixParam(m_CSSplatUtilities, "_CopyTransformMatrix", copyMatrix);
-
-            DispatchUtilsAndExecute(cmb, KernelIndices.CopySplats, copyCount);
-        }
-
         void DispatchUtilsAndExecute(CommandBuffer cmb, KernelIndices kernel, int count)
         {
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)kernel, out uint gsX, out _, out _);
@@ -1819,6 +1552,6 @@ namespace HierarchicalSplatting.Runtime
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
-        public GraphicsBuffer GpuEditDeleted => m_GpuEditDeleted;*/
+        public GraphicsBuffer GpuEditDeleted => m_GpuEditDeleted;
     }
 }

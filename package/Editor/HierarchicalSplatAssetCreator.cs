@@ -171,20 +171,17 @@ namespace HierarchicalSplatting.Editor
             int skyboxNum = HierarchyFileReader.loadScaffold(m_InputScaffoldFile, out skyboxPos, out skyboxSHs, out skyboxColor, out skyboxOther);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Sending Data Jobs", 0.7f);
-            int count = splatCount + skyboxNum;
 
-            var (width, height) = GaussianSplatAsset.CalcTextureSize(count);
-            int paddedSize = width * height;
-            
-            NativeArray<float4> allColor = new NativeArray<float4>(paddedSize, Allocator.Temp);
-            NativeArray<uint> allPos = new NativeArray<uint>(count * 3);
-            NativeArray<uint> allOther = new NativeArray<uint>(count * 4);
-            NativeArray<uint> allSHs = new NativeArray<uint>(count * 48);
-            
-            NativeArray<float4>.Copy(skyboxColor, allColor, skyboxNum);
-            NativeArray<uint>.Copy(skyboxPos, allPos, skyboxNum * 3);
-            NativeArray<uint>.Copy(skyboxOther, allOther, skyboxNum * 4);
-            NativeArray<uint>.Copy(skyboxSHs, allSHs, skyboxNum * 48);
+            long budget = 16000L;
+            int GAUSS_MEMLIMIT = (int)((budget * 1000000L - (484L * skyboxNum + 168L)) / 681L);
+            if (GAUSS_MEMLIMIT < 0)
+            {
+                EditorUtility.ClearProgressBar();
+                Debug.LogError("Memory budget insufficient");
+                return;
+            }
+            GAUSS_MEMLIMIT = splatCount < GAUSS_MEMLIMIT ? splatCount : GAUSS_MEMLIMIT;
+            int count = GAUSS_MEMLIMIT + skyboxNum;
             
             string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputModelFile));
 
@@ -201,10 +198,12 @@ namespace HierarchicalSplatting.Editor
             asset.nodeData = nodes.ToArray();
             asset.boxData = boxes.ToArray();
 
-            asset.allPos = allPos.ToArray();
-            asset.allOther = allOther.ToArray();
-            asset.allSHs = allSHs.ToArray();
-            asset.allColor = allColor.Select(c => (Vector4)c).ToArray();
+            asset.padded = width * height;
+
+            asset.allPos = skyboxPos.ToArray();
+            asset.allOther = skyboxOther.ToArray();
+            asset.allSHs = skyboxSHs.ToArray();
+            asset.allColor = skyboxColor.Select(c => (Vector4)c).ToArray();
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Initial texture import", 0.85f);
             AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
