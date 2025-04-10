@@ -47,6 +47,15 @@ namespace HierarchicalSplatting.Runtime
         [HideInInspector]
         public uint[] allSHs;
 
+        public struct ChunkInfo
+        {
+            public uint colR, colG, colB, colA;
+            public float2 posX, posY, posZ;
+            public uint sclX, sclY, sclZ;
+            public uint shR, shG, shB;
+        }
+
+
         public int padded;
         public void Initialize(int splats, int skyboxnum)
         {

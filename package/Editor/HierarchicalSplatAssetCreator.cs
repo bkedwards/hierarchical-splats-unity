@@ -157,7 +157,7 @@ namespace HierarchicalSplatting.Editor
             if (splatCount == 0)
             {
                 EditorUtility.ClearProgressBar();
-                DisposeHierarchy(ref pos, ref other, ref color ref shs, ref nodes, ref boxes);
+                DisposeHierarchy(ref pos, ref other, ref color, ref shs, ref nodes, ref boxes);
                 return;
             }
 
@@ -193,17 +193,31 @@ namespace HierarchicalSplatting.Editor
 
             asset.posData = pos.ToArray();
             asset.otherData = other.ToArray();
-            asset.colorData = color.Select(c => (Vector4)c).ToArray();
+            var nativeColorArray = color.ToArray();
+            var converted = new Vector4[nativeColorArray.Length];
+            for (int i = 0; i < nativeColorArray.Length; i++)
+            {
+                converted[i] = (Vector4)nativeColorArray[i];
+            }
+            asset.colorData = converted;
             asset.shData = shs.ToArray();
             asset.nodeData = nodes.ToArray();
             asset.boxData = boxes.ToArray();
 
+            var (width, height) = HierarchicalSplatAsset.CalcTextureSize(count);
             asset.padded = width * height;
 
             asset.allPos = skyboxPos.ToArray();
             asset.allOther = skyboxOther.ToArray();
             asset.allSHs = skyboxSHs.ToArray();
-            asset.allColor = skyboxColor.Select(c => (Vector4)c).ToArray();
+
+            var nativeAllColorArray = skyboxColor.ToArray();
+            var allConverted = new Vector4[nativeAllColorArray.Length];
+            for (int i = 0; i < nativeAllColorArray.Length; i++)
+            {
+                allConverted[i] = (Vector4)nativeAllColorArray[i];
+            }
+            asset.colorData = allConverted;
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Initial texture import", 0.85f);
             AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
@@ -220,42 +234,38 @@ namespace HierarchicalSplatting.Editor
 
             Selection.activeObject = savedAsset;
 
-            DisposeHierarchy(pos, other, color, shs, nodes, boxes);
-            DisposeScaffold(skyboxPos, skyboxOther, skyboxColor, skyboxSHs);
+            DisposeHierarchy(ref pos, ref other, ref color, ref shs, ref nodes, ref boxes);
+            DisposeScaffold(ref skyboxPos, ref skyboxOther, ref skyboxColor, ref skyboxSHs);
 
-            allPos?.Dispose();
-            allOther?.Dispose();
-            allSHs?.Dispose();
-            allColor?.Dispose();
         }
 
-        DisposeHierarchy(            
-            NativeArray<uint> pos, 
-            NativeArray<uint> other, 
-            NativeArray<float4> color, 
-            NativeArray<uint> shs, 
-            NativeArray<Node> nodes, 
-            NativeArray<Box> boxes) 
+        void DisposeHierarchy(          
+            ref NativeArray<uint> pos, 
+            ref NativeArray<uint> other, 
+            ref NativeArray<float4> color, 
+            ref NativeArray<uint> shs, 
+            ref NativeArray<Node> nodes, 
+            ref NativeArray<Box> boxes) 
         {
-            pos?.Dispose();
-            other?.Dispose();
-            color.Dispose();
-            shs.Dispose();
-            nodes.Dispose();
-            boxes.Dispose();
+            if (pos.IsCreated) pos.Dispose();
+            if (other.IsCreated) other.Dispose();
+            if (color.IsCreated) color.Dispose();
+            if (shs.IsCreated) shs.Dispose();
+            if (nodes.IsCreated) nodes.Dispose();
+            if (boxes.IsCreated) boxes.Dispose();
         }
 
-        DisposeScaffold (
-            NativeArray<uint> pos, 
-            NativeArray<uint> other, 
-            NativeArray<float4> color, 
-            NativeArray<uint> sh, 
+        void DisposeScaffold (
+            ref NativeArray<uint> pos, 
+            ref NativeArray<uint> other, 
+            ref NativeArray<float4> color, 
+            ref NativeArray<uint> shs
         )
         {
-            pos?.Dispose();
-            other?.Dispose();
-            color.Dispose();
-            shs.Dispose();
+            if (pos.IsCreated) pos.Dispose();
+            if (other.IsCreated) other.Dispose();
+            if (color.IsCreated) color.Dispose();
+            if (shs.IsCreated) shs.Dispose();
         }
     }
 }

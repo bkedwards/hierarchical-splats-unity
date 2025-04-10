@@ -77,7 +77,7 @@ namespace HierarchicalSplatting.Editor.Utils
                 
                 rawRotData = new NativeArray<byte>(P * sizeof(float4), Allocator.Temp);
                 fs.Read(rawRotData);
-                var float4RotData = rawRotData.Reinterpret<float4>(1);
+                var float4RotData = rawRotData.Reinterpret<Unity.Mathematics.float4>(1);
 
                 rawScaleData = new NativeArray<byte>(P * sizeof(float3), Allocator.Temp);
                 fs.Read(rawScaleData);
@@ -344,11 +344,11 @@ namespace HierarchicalSplatting.Editor.Utils
                 pos[k * 3 + 1] = math.asuint(p.pos.y);
                 pos[k * 3 + 2] = math.asuint(p.pos.z);
 
-                float4 rotQ = (float4)(p.rot).yzwx;
+                float4 rotQ = ((Unity.Mathematics.float4)p.rot).yzwx;
                 float4 rotQQ = GaussianUtils.PackSmallest3Rotation(rotQ);
                 uint enc = EncodeQuatToNorm10(rotQQ);
                 other[k * 4] = enc;
-                float3 scale = math.exp((float3(p.scale)));
+                float3 scale = math.exp((float3)(p.scale));
                 other[k * 4 + 1] = math.asuint(scale.x);
                 other[k * 4 + 2] = math.asuint(scale.y);
                 other[k * 4 + 3] = math.asuint(scale.z);

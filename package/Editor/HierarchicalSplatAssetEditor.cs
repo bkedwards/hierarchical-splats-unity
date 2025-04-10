@@ -43,9 +43,6 @@ namespace HierarchicalSplatting.Editor
             EditorGUILayout.LabelField("Nodes", EditorUtility.FormatBytes(splatCount * 7 * sizeof(int)));
             EditorGUILayout.LabelField("Boxes", EditorUtility.FormatBytes(splatCount * 8 * sizeof(float)));
             EditorGUI.indentLevel--;
-
-            // Display data hash (optional)
-            EditorGUILayout.TextField("Data Hash", hs.dataHash.ToString());
         }
     }
 }

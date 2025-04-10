@@ -94,7 +94,7 @@ namespace HierarchicalSplatting
     public class MemSet 
     {
         public GraphicsBuffer posBuff;
-        public GraphicsBuffer otherBuff
+        public GraphicsBuffer otherBuff;
         public GraphicsBuffer colorBuff;
         public GraphicsBuffer shsBuff;
         public GraphicsBuffer boxesBuff;
