@@ -804,14 +804,14 @@ namespace GaussianSplatting.Editor
                 {
                     Quaternion rotQ = m_Input[index].rot;
                     float4 rot = new float4(rotQ.x, rotQ.y, rotQ.z, rotQ.w);
-                    uint enc = EncodeQuatToNorm10(rot);
+                    uint enc = EncodeQuatToNorm10(rot); //turns 32x4 rotq to a single f32 (4 bytes) --> this is related to PackSmallestRotation
                     *(uint*) outputPtr = enc;
                     outputPtr += 4;
                 }
 
                 // scale: 6, 4 or 2 bytes
-                EmitEncodedVector(m_Input[index].scale, outputPtr, m_ScaleFormat);
-                outputPtr += GaussianSplatAsset.GetVectorSize(m_ScaleFormat);
+                EmitEncodedVector(m_Input[index].scale, outputPtr, m_ScaleFormat); //assigns next 12 bytes (doesnt move)
+                outputPtr += GaussianSplatAsset.GetVectorSize(m_ScaleFormat); //moves ahead 12 bytes
 
                 // SH index
                 if (m_SplatSHIndices.IsCreated)
@@ -849,10 +849,10 @@ namespace GaussianSplatting.Editor
 
         void CreateOtherData(NativeArray<InputSplatData> inputSplats, string filePath, ref Hash128 dataHash, NativeArray<int> splatSHIndices)
         {
-            int formatSize = GaussianSplatAsset.GetOtherSizeNoSHIndex(m_FormatScale);
+            int formatSize = GaussianSplatAsset.GetOtherSizeNoSHIndex(m_FormatScale); //16
             if (splatSHIndices.IsCreated)
                 formatSize += 2;
-            int dataLen = inputSplats.Length * formatSize;
+            int dataLen = inputSplats.Length * formatSize;  //fine as GPU's use 4byte alignment
 
             dataLen = NextMultipleOf(dataLen, 8); // serialized as ulong
             NativeArray<byte> data = new(dataLen, Allocator.TempJob);
@@ -914,6 +914,7 @@ namespace GaussianSplatting.Editor
 
             GraphicsFormat gfxFormat = GaussianSplatAsset.ColorFormatToGraphics(m_FormatColor);
             int dstSize = (int)GraphicsFormatUtility.ComputeMipmapSize(width, height, gfxFormat);
+            // width * height * 16
 
             if (GraphicsFormatUtility.IsCompressedFormat(gfxFormat))
             {
@@ -935,7 +936,7 @@ namespace GaussianSplatting.Editor
                     inputData = data,
                     format = m_FormatColor,
                     outputData = new NativeArray<byte>(dstSize, Allocator.TempJob),
-                    formatBytesPerPixel = dstSize / width / height
+                    formatBytesPerPixel = dstSize / width / height / == 16
                 };
                 jobConvert.Schedule(height, 1).Complete();
                 using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
@@ -1066,7 +1067,7 @@ namespace GaussianSplatting.Editor
             }
             else
             {
-                int dataLen = (int)GaussianSplatAsset.CalcSHDataSize(inputSplats.Length, m_FormatSH);
+                int dataLen = (int)GaussianSplatAsset.CalcSHDataSize(inputSplats.Length, m_FormatSH); //48 * count
                 NativeArray<byte> data = new(dataLen, Allocator.TempJob);
                 CreateSHDataJob job = new CreateSHDataJob
                 {

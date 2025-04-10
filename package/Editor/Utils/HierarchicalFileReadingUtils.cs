@@ -29,6 +29,12 @@ namespace HierarchicalSplatting.Editor.Utils
             return f;
         }
 
+        public static Vector3 SH0ToColor(Vector3 dc0)
+        {
+            const float kSH_C0 = 0.2820948f;
+            return dc0 * kSH_C0 + 0.5f;
+        }
+
         /*static int mantissatable(int i)
         {
             if (i==0)

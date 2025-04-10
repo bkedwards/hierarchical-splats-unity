@@ -30,77 +30,39 @@ namespace HierarchicalSplatting.Runtime
 
         long cachedMemorySize = -1;
         [HideInInspector]
-        public Vector3[] Pos;
+        public uint[] posData;
         [HideInInspector]
-        public Vector3[] Scales;
+        public uint[] otherData;
         [HideInInspector]
-        public Vector4[] Rots;
+        public Vector4[] colorData;
         [HideInInspector]
-        public float[] Alphas;
+        public uint[] shData;
         [HideInInspector]
-        public SHs[] SHs;
+        public Node[] nodeData;
         [HideInInspector]
-        public Box[] Boxes;
+        public Box[] boxData;
         [HideInInspector]
-        public Node[] Nodes;
+        public uint[] allPos;
         [HideInInspector]
-        public Vector3[] SkyPos;
+        public uint[] allOther;
         [HideInInspector]
-        public Vector3[] SkyScale;
+        public Vector4[] allColor;
         [HideInInspector]
-        public Vector4[] SkyRot;
-        [HideInInspector]
-        public float[] SkyAlpha;
-        [HideInInspector]
-        public SHs[] SkySH;
+        public uint[] allSHs;
 
-
+        public struct ChunkInfo
+        {
+            public uint colR, colG, colB, colA;
+            public float2 posX, posY, posZ;
+            public uint sclX, sclY, sclZ;
+            public uint shR, shG, shB;
+        }
 
         public void Initialize(int splats, int skyboxnum)
         {
-            Debug.Log("Initialize");
             m_SplatCount = splats;
             m_ScaffoldCount = skyboxnum;
             m_FormatVersion = kCurrentVersion;
-        }
-
-        public void SetDataHash(Hash128 hash)
-        {
-            m_DataHash = hash;
-        }
-
-        public void SetHierarchyData(
-            ref Vector3[] Pos,
-            ref Vector3[] Scales,
-            ref Vector4[] Rots,
-            ref float[] Alphas,
-            ref SHs[] SHs,
-            ref Box[] Boxes,
-            ref Node[] Nodes)
-        {
-            this.Pos = Pos;
-            this.Scales = Scales;
-            this.Rots = Rots;
-            this.Alphas = Alphas;
-            this.SHs = SHs;
-            this.Boxes = Boxes;
-            this.Nodes = Nodes;
-
-            Print(this.Pos, this.Rots, this.Scales, this.SHs, this.Alphas, this.Nodes, this.Boxes);
-        }
-
-        public void SetScaffoldData(
-            ref Vector3[] SkyPos,
-            ref Vector3[] SkyScale,
-            ref Vector4[] SkyRot,
-            ref float [] SkyAlpha,
-            ref SHs[] SkySH)
-        {
-            this.SkyPos = SkyPos;
-            this.SkyScale = SkyScale;
-            this.SkyRot = SkyRot;
-            this.SkyAlpha = SkyAlpha;
-            this.SkySH = SkySH;
         }
 
         public static (int,int) CalcTextureSize(int splatCount)
@@ -113,62 +75,9 @@ namespace HierarchicalSplatting.Runtime
             return (width, height);
         }
 
-        void Print(
-            Vector3[] eigenpos, 
-            Vector4[] eigenrot, 
-            Vector3[] eigenscale, 
-            SHs [] shs, 
-            float [] alphas, 
-            Node [] nodes, 
-            Box [] boxes)
+        public void SetDataHash(Hash128 hash)
         {
-            string ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenpos[i].x.ToString() + ", " + eigenpos[i].y.ToString() + ", " + eigenpos[i].z.ToString() + ") ";
-            }
-            Debug.Log("Pos: " + ans);
-            ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenscale[i].x.ToString() + ", " + eigenscale[i].y.ToString() + ", " + eigenscale[i].z.ToString() + ") ";
-            }
-            Debug.Log("Scale: " + ans);
-            ans = "";
-            for (int i = 0; i<5; i++)
-            {
-                ans += "(" + eigenrot[i].x.ToString() + ", " + eigenrot[i].y.ToString() + ", " + eigenrot[i].z.ToString() + ", " + eigenrot[i].w.ToString() + ") ";
-            }
-            Debug.Log("Rot: " + ans);
-            ans = "";
-            for (int i = 0; i<10; i++)
-            {
-                ans += alphas[i] + " ";
-            }
-            Debug.Log("alpha: " + ans);
-            ans = "\n";
-            for (int i = 0; i < 5; i++) 
-            {
-                ans += "\t[" + i.ToString() + "]: " + shs[i].dc0.ToString() + " " + shs[i].sh1.ToString() + " " + shs[i].sh2.ToString() + "\n";
-            }
-            Debug.Log("shs: " +  ans);
-            if (nodes != default)
-            {
-                ans = "";
-                for (int i = 0; i < 5; i++ ) {
-                    ans += "\t[" + i.ToString() + "]: " + nodes[i].depth.ToString() + " " + nodes[i].parent.ToString() + " " + nodes[i].start.ToString() + " " + nodes[i].count_leafs.ToString() + " " + nodes[i].count_merged.ToString() + " "  + nodes[i].start_children.ToString() + " " + nodes[i].count_children.ToString() + " \n";
-
-                }
-                Debug.Log("nodes: " + ans);
-            }
-            if (boxes != default)
-            {
-                ans = "";
-                for (int i = 0; i < 5; i++ ) {
-                    ans += "\t[" + i.ToString() + "]: " + boxes[i].minn.ToString() + " " + boxes[i].maxx.ToString() + "\n";
-                }
-                Debug.Log("boxes: " + ans);
-            }
+            m_DataHash = hash;
         }
 
         public long CalculateMemorySize()
