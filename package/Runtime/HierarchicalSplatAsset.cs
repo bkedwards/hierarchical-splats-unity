@@ -34,7 +34,7 @@ namespace HierarchicalSplatting.Runtime
         [HideInInspector]
         public uint[] otherData;
         [HideInInspector]
-        public Vector4[] colorData;
+        public float4[] colorData;
         [HideInInspector]
         public uint[] shData;
         [HideInInspector]
@@ -46,7 +46,7 @@ namespace HierarchicalSplatting.Runtime
         [HideInInspector]
         public uint[] allOther;
         [HideInInspector]
-        public Vector4[] allColor;
+        public float4[] allColor;
         [HideInInspector]
         public uint[] allSHs;
 

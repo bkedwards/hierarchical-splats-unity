@@ -82,7 +82,7 @@ namespace HierarchicalSplatting.Runtime
             mat.Clear();
             Material displayMat = hs.m_MatSplats;
             if (displayMat == null)
-                continue;
+                return null;
 
             hs.SetAssetDataOnMaterial(mpb);
             mpb.SetBuffer(HierarchicalSplatRenderer.Props.SplatChunks, hs.m_GpuChunks);
@@ -233,7 +233,7 @@ namespace HierarchicalSplatting.Runtime
 
         Matrix4x4 matView;
         Matrix4x4 matO2W;
-        Matrix4x4 matW20;
+        Matrix4x4 matW2O;
         Vector4 screenPar;
 
         public LightSet currSet;
@@ -294,7 +294,12 @@ namespace HierarchicalSplatting.Runtime
             public static readonly int SplatOther = Shader.PropertyToID("_SplatOther");
             public static readonly int SplatSH = Shader.PropertyToID("_SplatSH");
             public static readonly int SplatColor = Shader.PropertyToID("_SplatColor");
+            public static readonly int SplatSelectedBits = Shader.PropertyToID("_SplatSelectedBits");
+            public static readonly int SplatDeletedBits = Shader.PropertyToID("_SplatDeletedBits");
             public static readonly int SplatBitsValid = Shader.PropertyToID("_SplatBitsValid");
+            public static readonly int SplatFormat = Shader.PropertyToID("_SplatFormat");
+            public static readonly int SplatChunks = Shader.PropertyToID("_SplatChunks");
+            public static readonly int SplatChunkCount = Shader.PropertyToID("_SplatChunkCount");
             public static readonly int SplatViewData = Shader.PropertyToID("_SplatViewData");
             public static readonly int OrderBuffer = Shader.PropertyToID("_OrderBuffer");
             public static readonly int SplatScale = Shader.PropertyToID("_SplatScale");
@@ -303,6 +308,8 @@ namespace HierarchicalSplatting.Runtime
             public static readonly int SplatCount = Shader.PropertyToID("_SplatCount");
             public static readonly int SHOrder = Shader.PropertyToID("_SHOrder");
             public static readonly int SHOnly = Shader.PropertyToID("_SHOnly");
+            public static readonly int DisplayIndex = Shader.PropertyToID("_DisplayIndex");
+            public static readonly int DisplayChunks = Shader.PropertyToID("_DisplayChunks");
             public static readonly int GaussianSplatRT = Shader.PropertyToID("_GaussianSplatRT");
             public static readonly int SplatSortKeys = Shader.PropertyToID("_SplatSortKeys");
             public static readonly int SplatSortDistances = Shader.PropertyToID("_SplatSortDistances");
@@ -318,8 +325,11 @@ namespace HierarchicalSplatting.Runtime
             public static readonly int SelectionCenter = Shader.PropertyToID("_SelectionCenter");
             public static readonly int SelectionDelta = Shader.PropertyToID("_SelectionDelta");
             public static readonly int SelectionDeltaRot = Shader.PropertyToID("_SelectionDeltaRot");
+            public static readonly int SplatCutoutsCount = Shader.PropertyToID("_SplatCutoutsCount");
+            public static readonly int SplatCutouts = Shader.PropertyToID("_SplatCutouts");
             public static readonly int SelectionMode = Shader.PropertyToID("_SelectionMode");
-
+            public static readonly int SplatPosMouseDown = Shader.PropertyToID("_SplatPosMouseDown");
+            public static readonly int SplatOtherMouseDown = Shader.PropertyToID("_SplatOtherMouseDown");
         }
 
         public HierarchicalSplatAsset asset => m_Asset;
@@ -402,8 +412,8 @@ namespace HierarchicalSplatting.Runtime
             CopyBoxes = new Box [GAUSS_MEMLIMIT];
             CopyNodes = new Node [GAUSS_MEMLIMIT];
             
-            //cam_pos
-            //cam_pos_old
+            //camPos
+            //camPos_old
             //new_gauss_count -- used in clean up operations
             //newG -- used in clean up 
             //renderhelper -- used in cleanup
@@ -463,9 +473,9 @@ namespace HierarchicalSplatting.Runtime
             var texFormat = GraphicsFormat.R32G32B32A32_SFloat;
             var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate)   { name = "HierarchicalColorData" };
 
-            float4[] colorArr = newfloat4[toRender];
+            float4[] colorArr = new float4[toRender];
             currMem.colorBuff.GetData(colorArr);
-            tex.SetPixelData(colorArr, 0 , 0, colorArr.Length);
+            tex.SetPixelData(colorArr, 0, 0);
             tex.Apply(false, true);
             m_GpuColorData = tex;
 
@@ -831,7 +841,7 @@ namespace HierarchicalSplatting.Runtime
             m_CSHierarchicalCut.SetBuffer(3, "parent_indices", otherSet.parentIndicesBuff);
             m_CSHierarchicalCut.SetBuffer(3, "nodes_of_render_indices", otherSet.nodesOfRenderIndicesBuff);
 
-            m_CSHierarchicalCut.SetVector("viewpoint", cam_pos);
+            m_CSHierarchicalCut.SetVector("viewpoint", camPos);
             m_CSHierarchicalCut.SetFloat("target_size", sizeLimit);
 
             int numNodeBlocks = (numActiveNodesGpu + 255) / 256;
@@ -1169,7 +1179,7 @@ namespace HierarchicalSplatting.Runtime
 
             if (m_FrameCounter <50) {
                 Debug.Log("zdir: " + m_ZDirection);
-                Debug.Log("cam_pos: " + cam_pos);
+                Debug.Log("camPos: " + camPos);
             }*/
         }
 
@@ -1189,7 +1199,7 @@ namespace HierarchicalSplatting.Runtime
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys, m_GpuSortKeys);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_GpuChunks);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_GpuPosData);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_Asset.posFormat);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, 0);
             cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SplatCount);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);

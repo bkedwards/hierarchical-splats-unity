@@ -195,12 +195,12 @@ namespace HierarchicalSplatting.Editor
             uint[] allPos;
             uint[] allOther;
             float4[] allColor;
-            uint[] allSH;
+            uint[] allSHs;
 
             CreatePositionsData(eigenPos, skyboxPos, out posData, out allPos, ref dataHash);
             CreateOtherData(eigenScale, eigenRot, skyboxScale, skyboxRot, out otherData, out allOther, ref dataHash);
             CreateColorData(shs, alphas, skyboxSh, skyboxAlpha, out colorData, out allColor, ref dataHash);
-            CreateSHData(shs, skyboxSh, out shData, out allSH, ref dataHash);
+            CreateSHData(shs, skyboxSh, out shData, out allSHs, ref dataHash);
             asset.SetDataHash(dataHash);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Initial texture import", 0.85f);
@@ -216,7 +216,7 @@ namespace HierarchicalSplatting.Editor
             asset.allPos = allPos;
             asset.allOther = allOther;
             asset.allColor = allColor;
-            asset.allSH = allSH;
+            asset.allSHs = allSHs;
 
             var assetPath = Path.Combine(m_OutputFolder, $"{baseName}.asset");
             var savedAsset = CreateOrReplaceAsset(asset, assetPath);
@@ -227,6 +227,8 @@ namespace HierarchicalSplatting.Editor
             EditorUtility.ClearProgressBar();
 
             Selection.activeObject = savedAsset;
+            DisposeHierarchy(ref eigenPos,  ref eigenRot, ref eigenScale, ref shs, ref alphas, ref nodes, ref boxes);
+            DisposeScaffold(ref skyboxPos, ref skyboxRot, ref skyboxScale, ref skyboxSh, ref skyboxAlpha);
         }
 
         [BurstCompile]
@@ -268,7 +270,7 @@ namespace HierarchicalSplatting.Editor
 
             CreatePositionsDataJob allJob = new CreatePositionsDataJob
             {
-                m_InputPos = allPos,
+                m_InputPos = skyboxPos,
                 m_Output = allData
             };
             allJob.Schedule(skyboxPos.Length, 8192).Complete();
@@ -295,13 +297,13 @@ namespace HierarchicalSplatting.Editor
             {
                 float4 rotQ = m_InputRot[index];
                 uint enc = (uint)(rotQ.x * 1023.5f) | ((uint)(rotQ.y * 1023.5f) << 10) | ((uint)(rotQ.z * 1023.5f) << 20) | ((uint)(rotQ.w * 3.5f) << 30);
-                baseIdx = index * 4;
+                int baseIdx = index * 4;
                 m_Output[baseIdx] = enc;
 
                 float3 scale = m_InputScale[index];
-                m_Output[baseIdx + 1] = math.asuint(scale.x)
-                m_Output[baseIdx + 2] = math.asuint(scale.y)
-                m_Output[baseIdx + 3] = math.asuint(scale.z)
+                m_Output[baseIdx + 1] = math.asuint(scale.x);
+                m_Output[baseIdx + 2] = math.asuint(scale.y);
+                m_Output[baseIdx + 3] = math.asuint(scale.z);
             }
         }
 
@@ -340,7 +342,7 @@ namespace HierarchicalSplatting.Editor
             allData.Dispose();
             eigenData.Dispose();
 
-            dataHash.Append(data);
+            dataHash.Append(allData);
         }
 
         void Print(
@@ -411,11 +413,11 @@ namespace HierarchicalSplatting.Editor
             public void Execute(int index)
             {
                 SHs sh = m_InputSHs[index];
-                m_Output[i] = new float4(sh.dc0.x, sh.dc0.y, sh.dc0.z, m_InputAlphas[index]);
+                m_Output[index] = new float4(sh.dc0.x, sh.dc0.y, sh.dc0.z, m_InputAlphas[index]);
             }
         }
 
-        void CreateColorData(NativeArray<SHs> shs, NativeArray<float> alphas, NativeArray<SHs> skyboxSh, NativeArray<float> skyboxAlpha, out uint[] colorData, out uint[] allColor, ref Hash128 dataHash)
+        void CreateColorData(NativeArray<SHs> shs, NativeArray<float> alphas, NativeArray<SHs> skyboxSh, NativeArray<float> skyboxAlpha, out float4[] colorData, out float4[] allColor, ref Hash128 dataHash)
         {
             var (eigenWidth, eigenHeight) = HierarchicalSplatAsset.CalcTextureSize(shs.Length);
             var (allWidth, allHeight) = HierarchicalSplatAsset.CalcTextureSize(shs.Length + skyboxSh.Length);
@@ -439,9 +441,9 @@ namespace HierarchicalSplatting.Editor
             };
             allJob.Schedule(skyboxSh.Length, 8192).Complete();
 
-            colorData = new uint[eigenWidth * eigenHeight];
+            colorData = new float4[eigenWidth * eigenHeight];
             eigenData.CopyTo(colorData);
-            allColor = new uint[allWidth * allHeight];
+            allColor = new float4[allWidth * allHeight];
             allData.CopyTo(allColor);
 
             allData.Dispose();
@@ -458,7 +460,7 @@ namespace HierarchicalSplatting.Editor
 
             public unsafe void Execute(int index)
             {
-                SH* shPointer = ((SH*)m_Input.GetUnsafePtr()) + index;
+                SHs* shPointer = ((SHs*)m_Input.GetUnsafePtr()) + index;
                 uint* uintPointer = ((uint*)shPointer) + 3;
                 int baseIdx = index * 48;
                 for (int i = 0; i < 45; i++)
@@ -472,7 +474,7 @@ namespace HierarchicalSplatting.Editor
             }
 
         }
-        public string[] CreateSHData(NativeArray<SHs> shs, NativeArray<SHs> skyboxSh, out uint[] shData, out uint[] allSH, ref Hash128 dataHash)
+        public void CreateSHData(NativeArray<SHs> shs, NativeArray<SHs> skyboxSh, out uint[] shData, out uint[] allSH, ref Hash128 dataHash)
         {
             int eigenDataLen = (shs.Length) * 48; // SH is 48 uints (16 * float3)
             int allDataLen = (shs.Length + skyboxSh.Length) * 48; 
@@ -489,7 +491,7 @@ namespace HierarchicalSplatting.Editor
 
             CreateSHDataJob allJob = new CreateSHDataJob
             {
-                m_Input = skyboxSh
+                m_Input = skyboxSh,
                 m_Output = allData
             };
             allJob.Schedule(skyboxSh.Length, 8192).Complete();
@@ -502,7 +504,40 @@ namespace HierarchicalSplatting.Editor
             allData.Dispose();
             eigenData.Dispose();
 
-            dataHash.Append(data);
+            dataHash.Append(allData);
+        }
+        void DisposeHierarchy(          
+            ref NativeArray<float3> pos, 
+            ref NativeArray<float4> rot, 
+            ref NativeArray<float3> scale, 
+            ref NativeArray<SHs> shs, 
+            ref NativeArray<float> alphas, 
+            ref NativeArray<Node> nodes, 
+            ref NativeArray<Box> boxes)
+        {
+            if (pos.IsCreated) pos.Dispose();
+            if (rot.IsCreated) rot.Dispose();
+            if (scale.IsCreated) scale.Dispose();
+            if (alphas.IsCreated) alphas.Dispose();
+            if (shs.IsCreated) shs.Dispose();
+            if (nodes.IsCreated) nodes.Dispose();
+            if (boxes.IsCreated) boxes.Dispose();
+        }
+
+        void DisposeScaffold (
+            ref NativeArray<float3> pos, 
+            ref NativeArray<float4> rot, 
+            ref NativeArray<float3> scale, 
+            ref NativeArray<SHs> shs, 
+            ref NativeArray<float> alphas
+        )
+        {
+            if (pos.IsCreated) pos.Dispose();
+            if (rot.IsCreated) rot.Dispose();
+            if (scale.IsCreated) scale.Dispose();
+            if (alphas.IsCreated) alphas.Dispose();
+            if (shs.IsCreated) shs.Dispose();
         }
     }
+
 }

@@ -936,7 +936,7 @@ namespace GaussianSplatting.Editor
                     inputData = data,
                     format = m_FormatColor,
                     outputData = new NativeArray<byte>(dstSize, Allocator.TempJob),
-                    formatBytesPerPixel = dstSize / width / height / == 16
+                    formatBytesPerPixel = dstSize / width / height // == 16
                 };
                 jobConvert.Schedule(height, 1).Complete();
                 using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);

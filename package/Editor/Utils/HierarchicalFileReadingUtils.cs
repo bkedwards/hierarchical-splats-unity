@@ -32,7 +32,7 @@ namespace HierarchicalSplatting.Editor.Utils
         public static Vector3 SH0ToColor(Vector3 dc0)
         {
             const float kSH_C0 = 0.2820948f;
-            return dc0 * kSH_C0 + 0.5f;
+            return new Vector3 (dc0.x * kSH_C0 + 0.5f, dc0.y * kSH_C0 + 0.5f, dc0.z * kSH_C0 + 0.5f);
         }
 
         /*static int mantissatable(int i)

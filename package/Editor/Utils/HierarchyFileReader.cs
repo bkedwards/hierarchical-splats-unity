@@ -38,7 +38,7 @@ namespace HierarchicalSplatting.Editor.Utils
 
         static void Load(
             string filename, 
-            out NativeArray<float3< pos,  
+            out NativeArray<float3> pos,  
             out NativeArray<SHs> shs, 
             out NativeArray<float> alphas, 
             out NativeArray<float3> scales, 
@@ -114,7 +114,7 @@ namespace HierarchicalSplatting.Editor.Utils
                 shs = new NativeArray<SHs>(P, Allocator.Persistent);
                 for (int i = 0; i < P; i++)
                 {
-                    SH sh = SHsData[i];
+                    SHs sh = SHsData[i];
                     sh.dc0 = SH0ToColor(sh.dc0); //accounts for dc0 SH factor
                     shs[i] = sh;
                 }
@@ -200,7 +200,7 @@ namespace HierarchicalSplatting.Editor.Utils
                 fs.Read(rawSHData);
                 NativeArray<short> halfSHs = rawSHData.Reinterpret<short>(1);
 
-                shs = new NativeArrays<SHs>(P, Allocator.Persistent);
+                shs = new NativeArray<SHs>(P, Allocator.Persistent);
                 for (int i = 0; i < P; i++) 
                 {
                     SHs sh = new SHs();
@@ -420,7 +420,7 @@ namespace HierarchicalSplatting.Editor.Utils
 
                 pos[k] = (float3)p.pos;
                 rot[k] = ((float4)p.rot).yzwx; //swizzle
-                rot[k] = GaussianUtils.PackSmalles3Rotation(rot[k]); //compress
+                rot[k] = GaussianUtils.PackSmallest3Rotation(rot[k]); //compress
 
 
                 float3 v = (float3)p.scale;
